@@ -438,8 +438,11 @@ function openMenuItemModal(category = null, itemId = null) {
     document.getElementById("menuItemDescription").value =
         item ? item.description || "" : "";
 
-    document.getElementById("menuItemCategory").value =
+    const effectiveCategory =
         item ? item.category : category || "bread";
+
+    document.getElementById("menuItemCategory").value =
+        effectiveCategory;
 
     document.getElementById("menuProductType").value =
         item?.product_type || "standard";
@@ -449,6 +452,17 @@ function openMenuItemModal(category = null, itemId = null) {
 
     document.getElementById("menuBuilderSize").value =
     item?.builder_size ?? 4;
+
+    // Cookie eligibility checkbox (standard, category === "cookie" only).
+    // Existing item: reflects whatever builder_group is already set (any
+    // truthy value counts as "in" -- the checkbox always writes back the
+    // canonical "cookie" group on save). New item: defaults to checked
+    // whenever the item is being created in the Cookie category, so a
+    // newly added individual cookie is automatically eligible for both
+    // Mix & Match selectors without the admin needing to do anything else.
+    document.getElementById("menuAvailableInMixMatch").checked = item
+        ? Boolean(item.builder_group)
+        : effectiveCategory === "cookie";
 
     const recipeSelect =
         document.getElementById("menuRecipe");
@@ -545,7 +559,9 @@ function buildMenuItemModal() {
                     placeholder="Short menu description"></textarea>
 
                 <label for="menuItemCategory">Category</label>
-                <select id="menuItemCategory">
+                <select
+                    id="menuItemCategory"
+                    onchange="toggleMenuProductFields()">
                     <option value="bread">Bread</option>
                     <option value="cookie">Cookie</option>
                     <option value="dessert">Dessert</option>
@@ -590,6 +606,24 @@ function buildMenuItemModal() {
     </p>
 
 </div>
+
+                <div id="menuCookieBuilderField" style="display:none;">
+                    <div class="modal-checkboxes">
+                        <label>
+                            <input
+                                type="checkbox"
+                                id="menuAvailableInMixMatch">
+                            Available in Mix & Match boxes
+                        </label>
+                    </div>
+
+                    <p class="field-help">
+                        When checked, this cookie automatically appears as a
+                        choice in both the 6 Mix &amp; Match and 12 Mix &amp; Match
+                        selectors on the Menu page. Uncheck to exclude this
+                        cookie from Mix &amp; Match boxes.
+                    </p>
+                </div>
 
                 <div id="menuStandardFields">
                     <label for="menuRecipe">Recipe</label>
@@ -668,11 +702,17 @@ function toggleMenuProductFields() {
     const productType =
         document.getElementById("menuProductType")?.value || "standard";
 
+    const category =
+        document.getElementById("menuItemCategory")?.value || "bread";
+
     const standardFields =
         document.getElementById("menuStandardFields");
 
     const builderFields =
         document.getElementById("menuBuilderFields");
+
+    const cookieBuilderField =
+        document.getElementById("menuCookieBuilderField");
 
     if (standardFields) {
         standardFields.style.display =
@@ -682,6 +722,14 @@ function toggleMenuProductFields() {
     if (builderFields) {
         builderFields.style.display =
             productType === "builder" ? "block" : "none";
+    }
+
+    // Only individually-orderable cookies get the Mix & Match eligibility
+    // checkbox -- box/builder products and non-cookie standard products
+    // (bread, dessert, seasonal) never show it.
+    if (cookieBuilderField) {
+        cookieBuilderField.style.display =
+            productType === "standard" && category === "cookie" ? "block" : "none";
     }
 }
 
@@ -718,8 +766,24 @@ async function saveMenuItem() {
     const productType =
         document.getElementById("menuProductType").value;
 
-   const builderGroup =
-    document.getElementById("menuBuilderGroup").value.trim() || null;
+    const availableInMixMatch =
+        document.getElementById("menuAvailableInMixMatch").checked;
+
+    const rawBuilderGroup =
+        document.getElementById("menuBuilderGroup").value.trim() || null;
+
+    // Individually-orderable cookies get their Mix & Match eligibility
+    // from the checkbox (always the canonical "cookie" group -- matching
+    // both the 6 and 12 Mix & Match builders' own builder_group -- or
+    // null when unchecked), never from typed-in text. Every other case
+    // (the builder products themselves, and non-cookie standard products
+    // such as the existing cinnamon-roll builder lineup) keeps using the
+    // raw Builder Group field exactly as before, so nothing about those
+    // unrelated products changes.
+    const builderGroup =
+        productType === "standard" && category === "cookie"
+            ? (availableInMixMatch ? "cookie" : null)
+            : rawBuilderGroup;
 
 const builderSize =
     Number(
