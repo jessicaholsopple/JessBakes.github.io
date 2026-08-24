@@ -147,11 +147,195 @@
         return flatSubtotal + builderSubtotal;
     }
 
+    /**
+     * Adds one canonical selection ({id, name, quantity}) into a running
+     * {id: {name, quantity}} map, summing quantities for the same id.
+     * Used both when merging several existing order_items rows that
+     * resolve to the same live builder product, and by the admin editor
+     * UI to keep its own live selection state.
+     */
+    function addSelectionToMap(map, selection) {
+        if (!selection || selection.id === null || selection.id === undefined) return;
+
+        const id = String(selection.id);
+        const quantity = toNumber(selection.quantity, 0);
+        const existing = map[id];
+
+        map[id] = {
+            name: (existing && existing.name) || selection.name,
+            quantity: (existing ? existing.quantity : 0) + quantity
+        };
+    }
+
+    /**
+     * Mix & Match admin-editor support (embedded box builder in the
+     * order editor). Takes the `builderItems` array already produced by
+     * partitionOrderItemsForEditing() -- fully additive/opt-in: existing
+     * callers that only use partitionOrderItemsForEditing's original two
+     * fields are completely unaffected.
+     *
+     * Splits those preserved lines further into:
+     *   - builderBoxesById: one EDITABLE entry per live builder (box)
+     *     product matched by item_name (the same name-based resolution
+     *     sale-calculations.js already relies on, since builder lines
+     *     always have menu_item_id: null). If an order happens to
+     *     contain more than one existing row for the same box product
+     *     (e.g. two separate customer-built combos), they're merged into
+     *     one editable entry -- their selections are summed per flavor
+     *     and their box quantities added together, exactly mirroring how
+     *     this same editor already merges duplicate flat items by id.
+     *   - unresolvedBuilderItems: anything that can't be safely mapped
+     *     back to a current, live builder product (its box product was
+     *     renamed/deleted, or its builder_details is missing/malformed)
+     *     -- preserved verbatim, remove-only, exactly like the original
+     *     opaque builderItems behavior.
+     *
+     * Each builderBoxesById entry's perBoxPrice is derived from the
+     * ORIGINAL stored price_at_purchase (never the live/current menu
+     * price), so editing something unrelated on an order never silently
+     * changes what an already-purchased box is worth.
+     */
+    function groupBuilderItemsByLiveProduct(builderItems, builderProducts) {
+        const builderProductsByName = new Map(
+            (builderProducts || [])
+                .filter(p => p && p.name !== undefined && p.name !== null)
+                .map(p => [String(p.name), p])
+        );
+
+        const builderBoxesById = {};
+        const unresolvedBuilderItems = [];
+
+        (builderItems || []).forEach(item => {
+            const selections =
+                item.builder_details && Array.isArray(item.builder_details.selections)
+                    ? item.builder_details.selections
+                    : null;
+
+            const matchedProduct = selections ? builderProductsByName.get(String(item.item_name)) : null;
+
+            if (!matchedProduct) {
+                unresolvedBuilderItems.push(item);
+                return;
+            }
+
+            const boxQuantity = toNumber(
+                item.builder_details.box_quantity !== undefined
+                    ? item.builder_details.box_quantity
+                    : item.quantity,
+                0
+            );
+
+            let box = builderBoxesById[matchedProduct.id];
+
+            if (!box) {
+                box = builderBoxesById[matchedProduct.id] = {
+                    id: matchedProduct.id,
+                    name: matchedProduct.name,
+                    builderGroup: item.builder_details.builder_group || matchedProduct.builder_group,
+                    builderSize: toNumber(matchedProduct.builder_size, 0),
+                    boxQuantity: 0,
+                    totalPriceAtPurchase: 0,
+                    selections: {}
+                };
+            }
+
+            box.boxQuantity += boxQuantity;
+            box.totalPriceAtPurchase += toNumber(item.price_at_purchase, 0);
+
+            selections.forEach(selection => addSelectionToMap(box.selections, selection));
+        });
+
+        Object.values(builderBoxesById).forEach(box => {
+            box.perBoxPrice = box.boxQuantity > 0
+                ? box.totalPriceAtPurchase / box.boxQuantity
+                : toNumber(
+                    (builderProducts || []).find(p => String(p.id) === String(box.id)) &&
+                        (builderProducts || []).find(p => String(p.id) === String(box.id)).price,
+                    0
+                );
+            delete box.totalPriceAtPurchase;
+        });
+
+        return { builderBoxesById, unresolvedBuilderItems };
+    }
+
+    /**
+     * Builds the order_items rows for every editable Mix & Match box the
+     * admin editor currently holds (see groupBuilderItemsByLiveProduct
+     * and admin-orders.js's changeManualBuilderBoxQuantity). Boxes at
+     * quantity 0 produce no row -- removing a box removes its selection
+     * details with it (nothing to preserve once the whole line is gone).
+     *
+     * Saved in exactly the same shape the public checkout writes
+     * (menu_item_id: null, item_name, builder_details: {builder_group,
+     * selections}), plus the additive box_quantity field. quantity is
+     * always 1 and price_at_purchase is perBoxPrice * boxQuantity, so:
+     *   - revenue (line_total = price_at_purchase * quantity) is exactly
+     *     the fixed per-box price times how many boxes were ordered --
+     *     never inflated by individual cookie prices;
+     *   - sale-calculations.js's child-cost formula
+     *     (selectionQuantity * quantity) reduces to exactly
+     *     selectionQuantity, i.e. the true total picked per flavor, with
+     *     no risk of double-counting regardless of how unevenly flavors
+     *     are split across multiple boxes in one line.
+     */
+    function buildBuilderBoxOrderItems(orderId, builderBoxesById) {
+        return Object.values(builderBoxesById || {})
+            .filter(box => toNumber(box.boxQuantity, 0) > 0)
+            .map(box => {
+                const boxQuantity = toNumber(box.boxQuantity, 0);
+
+                const selections = Object.keys(box.selections || {})
+                    .map(id => ({
+                        id,
+                        name: box.selections[id].name,
+                        quantity: toNumber(box.selections[id].quantity, 0)
+                    }))
+                    .filter(selection => selection.quantity > 0);
+
+                const priceAtPurchase = toNumber(box.perBoxPrice, 0) * boxQuantity;
+
+                return {
+                    order_id: orderId,
+                    menu_item_id: null,
+                    item_name: box.name,
+                    quantity: 1,
+                    price_at_purchase: priceAtPurchase,
+                    line_total: priceAtPurchase,
+                    builder_details: {
+                        builder_group: box.builderGroup,
+                        selections,
+                        box_quantity: boxQuantity
+                    }
+                };
+            });
+    }
+
+    /** Box-line item count, for the editor's "Total Items" summary. */
+    function computeBuilderBoxItemCount(builderBoxesById) {
+        return Object.values(builderBoxesById || {}).reduce(
+            (sum, box) => sum + toNumber(box.boxQuantity, 0), 0
+        );
+    }
+
+    /** Box-line subtotal (fixed per-box price only -- never individual
+     *  cookie prices), for the editor's "Subtotal" summary. */
+    function computeBuilderBoxSubtotal(builderBoxesById) {
+        return Object.values(builderBoxesById || {}).reduce(
+            (sum, box) => sum + toNumber(box.perBoxPrice, 0) * toNumber(box.boxQuantity, 0), 0
+        );
+    }
+
     return {
         isOrderEditable,
         partitionOrderItemsForEditing,
         buildOrderItemsPayload,
         computeManualOrderItemCount,
-        computeManualOrderSubtotal
+        computeManualOrderSubtotal,
+        addSelectionToMap,
+        groupBuilderItemsByLiveProduct,
+        buildBuilderBoxOrderItems,
+        computeBuilderBoxItemCount,
+        computeBuilderBoxSubtotal
     };
 });

@@ -192,11 +192,26 @@
         // block the revenue line, it just leaves menu_item_id null.
         const builderMenuItem = orderItem.item_name ? menuItemsByBuilderName.get(key(orderItem.item_name)) : undefined;
 
+        // The parent line's OWN displayed quantity is the true box count.
+        // For ordinary rows that's just `quantity` (unchanged, and still
+        // exactly what the child multiplication below uses). The Admin
+        // Orders editor can additionally combine more than one box's
+        // worth of cookies into a single order_items row (quantity: 1,
+        // selections already totaled across every box) and records the
+        // real box count separately as builder_details.box_quantity --
+        // when present, that's what the parent line shows instead, purely
+        // for display/reporting (Sales' "items sold", etc.). It never
+        // affects childQuantity below, which is deliberately still based
+        // on `quantity` alone so cost/profit stay correct either way.
+        const parentQuantity = orderItem.builder_details && orderItem.builder_details.box_quantity !== undefined
+            ? toNumber(orderItem.builder_details.box_quantity, quantity)
+            : quantity;
+
         const lines = [{
             source: "builder-parent",
             menu_item_id: builderMenuItem ? builderMenuItem.id : null,
             item_name: orderItem.item_name,
-            quantity,
+            quantity: parentQuantity,
             unit_price: unitPrice,
             food_cost: 0,
             packaging_cost: 0,

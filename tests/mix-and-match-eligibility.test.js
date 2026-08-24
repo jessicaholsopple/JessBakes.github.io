@@ -29,9 +29,11 @@ function read(relPath) {
         "cookie") -- no new database column, no hardcoded name list.
 
    The tests below execute the REAL js/cart.js builder-selection code
-   (the exact function the live storefront runs) against an in-memory
-   stand-in for the Supabase query it issues, so this proves the actual
-   production eligibility rule -- not a reimplementation of it.
+   (the exact function the live storefront runs), which itself calls the
+   REAL js/mix-and-match.js shared eligibility module (the same module
+   the Admin Orders editor uses -- see tests/order-editor.test.js) --
+   proving the actual production eligibility rule, not a reimplementation
+   of it, and proving it's genuinely shared rather than duplicated.
    ========================================== */
 
 function loadCartSandbox() {
@@ -43,42 +45,20 @@ function loadCartSandbox() {
         body: { appendChild: () => {} }
     };
 
-    // Mimics only the chain js/cart.js's openBuilderModal actually issues:
-    // .from("menu_items").select("*").eq("builder_group",...).eq("product_type","standard").eq("available",true).order("name")
-    // Each .eq() narrows an in-memory copy of the table using the exact
-    // same field/value predicate the real Postgres query would apply.
-    function makeQuery(rows) {
-        return {
-            select() { return this; },
-            eq(field, value) {
-                return makeQuery(rows.filter(r => r[field] === value));
-            },
-            order(field) {
-                const sorted = [...rows].sort((a, b) => String(a[field]).localeCompare(String(b[field])));
-                return Promise.resolve({ data: sorted, error: null });
-            }
-        };
-    }
-
-    const fakeSupabase = {
-        from(table) {
-            assert.equal(table, "menu_items", "openBuilderModal must query menu_items");
-            return makeQuery(fakeSupabase.__table);
-        },
-        __table: []
-    };
-
-    const sandbox = { document: fakeDocument, supabaseClient: fakeSupabase, window: {}, console };
+    const sandbox = { document: fakeDocument, window: {}, console };
     vm.createContext(sandbox);
 
-    const source = read("js/cart.js");
+    // cart.js expects MixAndMatch as a script-global, exactly like it's
+    // loaded in menu.html (js/mix-and-match.js before js/cart.js).
+    const mixAndMatchSource = read("js/mix-and-match.js");
+    const cartSource = read("js/cart.js");
     const glue = `
         this.__setCartMenuItems = function (items) { cartMenuItems = items; };
         this.__openBuilderModal = openBuilderModal;
     `;
-    vm.runInContext(source + "\n" + glue, sandbox);
+    vm.runInContext(mixAndMatchSource + "\n" + cartSource + "\n" + glue, sandbox);
 
-    return { sandbox, fakeModal, fakeSupabase };
+    return { sandbox, fakeModal };
 }
 
 function cookieRow(id, name, { available = true, builderGroup = "cookie" } = {}) {
@@ -110,8 +90,7 @@ const TWELVE_BUILDER = {
     price: 25
 };
 
-async function optionNamesFor(sandbox, fakeSupabase, fakeModal, table, builder) {
-    fakeSupabase.__table = table;
+async function optionNamesFor(sandbox, fakeModal, table, builder) {
     sandbox.__setCartMenuItems(table);
     await sandbox.__openBuilderModal(builder.id);
     // Matches only each builder-row's own `<div><strong>NAME</strong></div>`
@@ -122,7 +101,7 @@ async function optionNamesFor(sandbox, fakeSupabase, fakeModal, table, builder) 
 }
 
 test("a newly created, available individual cookie automatically appears in both the 6 and 12 Mix & Match selectors", async () => {
-    const { sandbox, fakeModal, fakeSupabase } = loadCartSandbox();
+    const { sandbox, fakeModal } = loadCartSandbox();
 
     const table = [
         SIX_BUILDER,
@@ -136,7 +115,7 @@ test("a newly created, available individual cookie automatically appears in both
     ];
 
     for (const builder of [SIX_BUILDER, TWELVE_BUILDER]) {
-        const names = await optionNamesFor(sandbox, fakeSupabase, fakeModal, table, builder);
+        const names = await optionNamesFor(sandbox, fakeModal, table, builder);
         assert.deepEqual(
             new Set(names),
             new Set(["Brown Butter Sea Salt Chocolate Chip", "Strawberry Shortcake", "Salted Caramel Snickerdoodle"]),
@@ -146,7 +125,7 @@ test("a newly created, available individual cookie automatically appears in both
 });
 
 test("that same cookie disappears from both selectors as soon as it is marked unavailable", async () => {
-    const { sandbox, fakeModal, fakeSupabase } = loadCartSandbox();
+    const { sandbox, fakeModal } = loadCartSandbox();
 
     const table = [
         SIX_BUILDER,
@@ -156,14 +135,14 @@ test("that same cookie disappears from both selectors as soon as it is marked un
     ];
 
     for (const builder of [SIX_BUILDER, TWELVE_BUILDER]) {
-        const names = await optionNamesFor(sandbox, fakeSupabase, fakeModal, table, builder);
+        const names = await optionNamesFor(sandbox, fakeModal, table, builder);
         assert.ok(names.includes("Brown Butter Sea Salt Chocolate Chip"));
         assert.ok(!names.includes("Salted Caramel Snickerdoodle"), `${builder.name} must not offer an unavailable cookie`);
     }
 });
 
 test("reproduces the actual live bug: a cookie with builder_group left null is excluded from both selectors until corrected", async () => {
-    const { sandbox, fakeModal, fakeSupabase } = loadCartSandbox();
+    const { sandbox, fakeModal } = loadCartSandbox();
 
     const table = [
         SIX_BUILDER,
@@ -174,16 +153,16 @@ test("reproduces the actual live bug: a cookie with builder_group left null is e
         cookieRow("cookie-broken", "S'mores", { builderGroup: null })
     ];
 
-    let names = await optionNamesFor(sandbox, fakeSupabase, fakeModal, table, SIX_BUILDER);
+    let names = await optionNamesFor(sandbox, fakeModal, table, SIX_BUILDER);
     assert.ok(!names.includes("S'mores"), "a null builder_group must exclude the cookie -- this is the bug being fixed");
 
     table[3].builder_group = "cookie";
-    names = await optionNamesFor(sandbox, fakeSupabase, fakeModal, table, SIX_BUILDER);
+    names = await optionNamesFor(sandbox, fakeModal, table, SIX_BUILDER);
     assert.ok(names.includes("S'mores"), "setting builder_group = 'cookie' must make it appear");
 });
 
 test("the box products themselves, unavailable products, and non-cookie products never leak into the cookie selector", async () => {
-    const { sandbox, fakeModal, fakeSupabase } = loadCartSandbox();
+    const { sandbox, fakeModal } = loadCartSandbox();
 
     const table = [
         SIX_BUILDER,
@@ -200,18 +179,25 @@ test("the box products themselves, unavailable products, and non-cookie products
         }
     ];
 
-    const names = await optionNamesFor(sandbox, fakeSupabase, fakeModal, table, SIX_BUILDER);
+    const names = await optionNamesFor(sandbox, fakeModal, table, SIX_BUILDER);
     assert.deepEqual(names, ["Brown Butter Sea Salt Chocolate Chip"]);
 });
 
-test("js/cart.js's builder query still filters by builder_group/product_type/available -- never by a hardcoded cookie name list", () => {
+test("js/cart.js derives eligible flavors from the shared js/mix-and-match.js module -- never a separate hardcoded name list or its own query", () => {
     const source = read("js/cart.js");
-    assert.match(source, /\.eq\(\s*"builder_group"\s*,\s*builder\.builder_group\s*\)/);
-    assert.match(source, /\.eq\(\s*"product_type"\s*,\s*"standard"\s*\)/);
-    assert.match(source, /\.eq\(\s*"available"\s*,\s*true\s*\)/);
+    assert.match(source, /MixAndMatch\.getEligibleCookies\(cartMenuItems,\s*builder\)/);
 
     // Guard against ever "fixing" this by hardcoding the two previously
     // missing flavor names into the modal, per the explicit requirement.
+    assert.doesNotMatch(source, /S['’]mores/);
+    assert.doesNotMatch(source, /Browned Butter Snickerdoodle/);
+});
+
+test("js/mix-and-match.js's canonical eligibility rule filters by builder_group/product_type/available -- never by a hardcoded cookie name", () => {
+    const source = read("js/mix-and-match.js");
+    assert.match(source, /menuItem\.product_type === "standard"/);
+    assert.match(source, /menuItem\.available === true/);
+    assert.match(source, /menuItem\.builder_group === builderProduct\.builder_group/);
     assert.doesNotMatch(source, /S['’]mores/);
     assert.doesNotMatch(source, /Browned Butter Snickerdoodle/);
 });

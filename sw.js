@@ -22,7 +22,7 @@
    the Cache API.
    ========================================== */
 
-const CACHE_VERSION = "jb-admin-static-v3";
+const CACHE_VERSION = "jb-admin-static-v4";
 
 // Exact same-origin pathnames only -- never a prefix match, never an
 // HTML document, never anything under /admin/ (those are the private

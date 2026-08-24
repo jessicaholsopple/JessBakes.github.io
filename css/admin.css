@@ -1459,6 +1459,147 @@ body {
 }
 
 /* ==========================================
+   MANUAL ORDER ITEM PICKER (New/Edit Order modal)
+========================================== */
+
+.manual-pos-list {
+    margin-top: 10px;
+    margin-bottom: 16px;
+    border: 1px solid #ece5dd;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.manual-pos-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid #f3eee9;
+}
+
+.manual-pos-list .manual-pos-item:last-child {
+    border-bottom: none;
+}
+
+.manual-pos-item small {
+    display: block;
+    color: #777;
+    margin-top: 2px;
+}
+
+.manual-pos-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.manual-pos-controls button {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.manual-pos-controls span {
+    min-width: 18px;
+    text-align: center;
+    font-weight: 700;
+}
+
+.manual-order-summary {
+    display: flex;
+    justify-content: flex-end;
+    gap: 28px;
+    padding: 4px 4px 0;
+}
+
+.manual-order-summary div {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.manual-order-summary span {
+    font-size: .78rem;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #777;
+}
+
+/* ---- Mix & Match box: embedded flavor selector ---- */
+
+.manual-builder-box {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.manual-builder-box > div:first-child {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.manual-builder-selector {
+    margin-top: 10px;
+    padding: 12px 14px;
+    background: #faf7f4;
+    border: 1px solid #ece5dd;
+    border-radius: 10px;
+}
+
+.manual-builder-summary {
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.manual-builder-summary-error {
+    color: #b23232;
+}
+
+.manual-builder-message {
+    margin: 4px 0 10px;
+    font-size: .85rem;
+    color: #b23232;
+}
+
+.manual-builder-flavors {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.manual-builder-flavor-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px dashed #ece5dd;
+    font-size: .9rem;
+}
+
+.manual-builder-flavor-row:last-child {
+    border-bottom: none;
+}
+
+.manual-builder-flavor-stale {
+    color: #b23232;
+}
+
+.manual-builder-flavor-stale span {
+    font-style: italic;
+}
+
+/* ==========================================
    COLLAPSIBLE ORDER SECTIONS
 ========================================== */
 
@@ -4123,6 +4264,31 @@ html {
     .modal-checkboxes {
         gap: 16px;
         flex-wrap: wrap;
+    }
+
+    /* ---------- Manual order item picker / Mix & Match selector ---------- */
+
+    .manual-pos-item {
+        padding: 10px;
+        gap: 10px;
+    }
+
+    .manual-pos-controls button,
+    .manual-builder-flavor-row .manual-pos-controls button {
+        min-height: 44px;
+        min-width: 44px;
+    }
+
+    .manual-builder-selector {
+        padding: 10px;
+    }
+
+    .manual-builder-flavor-row {
+        font-size: .85rem;
+    }
+
+    .manual-order-summary {
+        gap: 18px;
     }
 
     /* ---------- Tables: contain overflow, don't force a redesign ---------- */

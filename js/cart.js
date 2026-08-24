@@ -92,26 +92,19 @@ function changeCartQuantity(itemId, change) {
    BUILDER PRODUCTS
 ========================================== */
 
-async function openBuilderModal(builderId){
+function openBuilderModal(builderId){
 
     const builder =
         cartMenuItems.find(i => i.id === builderId);
 
     if(!builder) return;
 
-    const {data:options,error}=await supabaseClient
-        .from("menu_items")
-        .select("*")
-        .eq("builder_group",builder.builder_group)
-        .eq("product_type","standard")
-        .eq("available",true)
-        .order("name");
-
-    if(error){
-        console.error(error);
-        alert(error.message);
-        return;
-    }
+    // Shared with the Admin Orders editor (js/mix-and-match.js) so both
+    // interfaces derive eligible flavors identically -- never a separate
+    // hardcoded list, never a name match. cartMenuItems is already the
+    // full, current, available-only menu_items fetch (see js/menu.js
+    // loadMenu()), so no extra network round-trip is needed here.
+    const options = MixAndMatch.getEligibleCookies(cartMenuItems, builder);
 
     showBuilderModal(builder,options);
 }

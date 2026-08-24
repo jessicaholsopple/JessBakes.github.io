@@ -41,12 +41,24 @@ function handleOrderDeepLink() {
 let menuItems = [];
 let manualOrderItems = {};
 
-// Order lines the flat POS-style editor below can't represent (Mix & Match
-// builder boxes, or any line whose linked menu item no longer exists) —
-// preserved verbatim when editing an existing order so opening Edit can
-// never silently drop them (BUG-02). Not addable from this editor; only
-// carried through unchanged or removed as a whole line.
-let manualBuilderItems = [];
+// Mix & Match ("builder") boxes in the order currently being built/edited,
+// keyed by the LIVE builder product id (e.g. "6 Mix & Match Cookies").
+// Fully editable here: box quantity via the same +/- control as any flat
+// item, plus an embedded cookie-flavor selector once boxQuantity > 0. See
+// OrderEditor.groupBuilderItemsByLiveProduct (loading an existing order)
+// and OrderEditor.buildBuilderBoxOrderItems (saving). Each entry:
+//   { id, name, builderGroup, builderSize, perBoxPrice, boxQuantity,
+//     selections: { [cookieId]: { name, quantity } } }
+let manualBuilderBoxes = {};
+
+// Order lines that can't be safely represented by either the flat editor
+// or the Mix & Match box editor above (a builder-style line whose box
+// product was since renamed/deleted, or any other line with no
+// resolvable menu_item_id) — preserved verbatim when editing an existing
+// order so opening Edit can never silently drop them (BUG-02). Not
+// addable from this editor; only carried through unchanged or removed as
+// a whole line.
+let manualUnresolvedBuilderItems = [];
 
 
 /* ==========================================
@@ -485,7 +497,7 @@ function renderOrderItems(items) {
 
                 <span class="order-item-qty">
 
-                    ${item.quantity}×
+                    ${item.builder_details?.box_quantity ?? item.quantity}×
 
                 </span>
 
@@ -1039,7 +1051,8 @@ async function deleteOrder(orderId) {
 function openManualOrderModal() {
 
     manualOrderItems = {};
-    manualBuilderItems = [];
+    manualBuilderBoxes = {};
+    manualUnresolvedBuilderItems = [];
 
    document.querySelector(
     "#manualOrderModal .modal-header h2"
@@ -1085,7 +1098,8 @@ function closeManualOrderModal() {
     ).textContent = "Save Order";
 
     manualOrderItems = {};
-    manualBuilderItems = [];
+    manualBuilderBoxes = {};
+    manualUnresolvedBuilderItems = [];
 
 }
 
@@ -1142,7 +1156,7 @@ function renderManualMenuItems() {
     }
 
     container.innerHTML = `
-        ${renderManualBuilderItems()}
+        ${renderManualUnresolvedBuilderItems()}
 
         <div class="manual-pos-list">
             ${menuItems.map(item => renderManualMenuItem(item)).join("")}
@@ -1161,18 +1175,20 @@ function renderManualMenuItems() {
         </div>
     `;
 
+    updateManualSaveButtonState();
+
 }
 
-function renderManualBuilderItems() {
+function renderManualUnresolvedBuilderItems() {
 
-    if (!manualBuilderItems.length) return "";
+    if (!manualUnresolvedBuilderItems.length) return "";
 
     return `
         <div class="manual-pos-list" style="margin-bottom:16px;">
-            <p><strong>Mix &amp; Match / custom items in this order</strong></p>
+            <p><strong>Other custom items in this order</strong></p>
             <p><small>These can't be edited here — remove and have the customer re-build them at checkout if the contents need to change. Everything else on this order can still be edited normally.</small></p>
 
-            ${manualBuilderItems.map(item => `
+            ${manualUnresolvedBuilderItems.map(item => `
                 <div class="manual-pos-item">
                     <div>
                         <strong>${escapeHtml(item.item_name)}</strong>
@@ -1187,7 +1203,7 @@ function renderManualBuilderItems() {
                         <button
                             type="button"
                             class="delete-btn"
-                            onclick="removeManualBuilderItem('${item.localId}')">
+                            onclick="removeManualUnresolvedBuilderItem('${item.localId}')">
                             Remove
                         </button>
                     </div>
@@ -1198,13 +1214,13 @@ function renderManualBuilderItems() {
 
 }
 
-function removeManualBuilderItem(localId) {
+function removeManualUnresolvedBuilderItem(localId) {
 
     if (!confirm(
-        "Remove this item from the order? Its full contents (including any Mix & Match selections) will be removed."
+        "Remove this item from the order? Its full contents will be removed."
     )) return;
 
-    manualBuilderItems = manualBuilderItems.filter(
+    manualUnresolvedBuilderItems = manualUnresolvedBuilderItems.filter(
         item => String(item.localId) !== String(localId)
     );
 
@@ -1214,6 +1230,10 @@ function removeManualBuilderItem(localId) {
 }
 
 function renderManualMenuItem(item) {
+
+    if (item.product_type === "builder") {
+        return renderManualBuilderBoxItem(item);
+    }
 
     const price = Number(item.price || 0);
 
@@ -1257,11 +1277,152 @@ function renderManualMenuItem(item) {
 
 }
 
+/* ==========================================
+   MIX & MATCH BOX (embedded in the order editor)
+
+   Reuses the same canonical eligibility/validation rules as the public
+   Menu checkout (js/mix-and-match.js) -- never a hardcoded flavor list.
+   ========================================== */
+
+function renderManualBuilderBoxItem(item) {
+
+    const box = manualBuilderBoxes[item.id];
+    const boxQuantity = box ? box.boxQuantity : 0;
+    const price = Number(item.price || 0);
+
+    return `
+        <div class="manual-pos-item manual-builder-box">
+
+            <div>
+                <strong>${escapeHtml(item.name)}</strong>
+
+                <small>
+                    ${escapeHtml(item.category || "Menu")}
+                    •
+                    €${price.toFixed(2)} per box
+                </small>
+            </div>
+
+            <div class="manual-pos-controls">
+
+                <button
+                    type="button"
+                    class="secondary-btn"
+                    onclick="changeManualItemQuantity('${item.id}', -1)">
+                    −
+                </button>
+
+                <span id="manualQty-${item.id}">
+    ${boxQuantity}
+</span>
+
+                <button
+                    type="button"
+                    class="primary-btn"
+                    onclick="changeManualItemQuantity('${item.id}', 1)">
+                    +
+                </button>
+
+            </div>
+
+        </div>
+
+        ${boxQuantity > 0 ? renderManualBuilderSelector(item, box) : ""}
+    `;
+
+}
+
+function renderManualBuilderSelector(item, box) {
+
+    const eligibleCookies = MixAndMatch.getEligibleCookies(menuItems, item);
+    const selectionsArray = builderSelectionsToArray(box.selections);
+    const validation = MixAndMatch.validateBoxSelection(
+        item.builder_size, box.boxQuantity, selectionsArray, eligibleCookies
+    );
+
+    const messages = {
+        under: `Select ${validation.required - validation.selected} more to reach the required total.`,
+        over: `Remove ${validation.selected - validation.required} to match the required total.`,
+        missing: `This box needs ${validation.required} cookies selected below before it can be saved.`,
+        stale: "One or more previously selected flavors are no longer available — remove or replace them below before saving."
+    };
+
+    return `
+        <div class="manual-builder-selector">
+
+            <div class="manual-builder-summary ${validation.status !== "ok" ? "manual-builder-summary-error" : ""}">
+                Selected: ${validation.selected} / ${validation.required}
+            </div>
+
+            ${messages[validation.status] ? `<p class="manual-builder-message">${escapeHtml(messages[validation.status])}</p>` : ""}
+
+            <div class="manual-builder-flavors">
+
+                ${eligibleCookies.map(cookie => `
+                    <div class="manual-builder-flavor-row">
+                        <span>${escapeHtml(cookie.name)}</span>
+
+                        <div class="manual-pos-controls">
+                            <button
+                                type="button"
+                                class="secondary-btn"
+                                onclick="changeManualBuilderCookieQuantity('${item.id}','${cookie.id}','${escapeJs(cookie.name)}',-1)">
+                                −
+                            </button>
+
+                            <span>${(box.selections[cookie.id] && box.selections[cookie.id].quantity) || 0}</span>
+
+                            <button
+                                type="button"
+                                class="primary-btn"
+                                onclick="changeManualBuilderCookieQuantity('${item.id}','${cookie.id}','${escapeJs(cookie.name)}',1)">
+                                +
+                            </button>
+                        </div>
+                    </div>
+                `).join("")}
+
+                ${validation.staleSelections.map(selection => `
+                    <div class="manual-builder-flavor-row manual-builder-flavor-stale">
+                        <span>${escapeHtml(selection.name || "Unknown item")} — no longer available</span>
+
+                        <div class="manual-pos-controls">
+                            <button
+                                type="button"
+                                class="delete-btn"
+                                onclick="removeManualBuilderStaleSelection('${item.id}','${selection.id}')">
+                                Remove
+                            </button>
+                        </div>
+                    </div>
+                `).join("")}
+
+            </div>
+
+        </div>
+    `;
+
+}
+
+/** {id: {name, quantity}} -> [{id, name, quantity}], canonical shape. */
+function builderSelectionsToArray(selections) {
+    return Object.keys(selections || {}).map(id => ({
+        id,
+        name: selections[id].name,
+        quantity: selections[id].quantity
+    }));
+}
+
 function changeManualItemQuantity(itemId, change) {
 
     const item = menuItems.find(menuItem => String(menuItem.id) === String(itemId));
 
     if (!item) return;
+
+    if (item.product_type === "builder") {
+        changeManualBuilderBoxQuantity(item, change);
+        return;
+    }
 
     const current = manualOrderItems[itemId]?.quantity || 0;
     const next = Math.max(0, current + change);
@@ -1291,14 +1452,128 @@ function changeManualItemQuantity(itemId, change) {
 
 }
 
+function changeManualBuilderBoxQuantity(builderProduct, change) {
+
+    const existing = manualBuilderBoxes[builderProduct.id];
+    const current = existing ? existing.boxQuantity : 0;
+    const next = Math.max(0, current + change);
+
+    if (next === 0) {
+
+        // Requirement: removing a box removes its selection details with
+        // it -- nothing to preserve once the whole line is gone.
+        delete manualBuilderBoxes[builderProduct.id];
+
+    } else if (existing) {
+
+        existing.boxQuantity = next;
+
+    } else {
+
+        manualBuilderBoxes[builderProduct.id] = {
+            id: builderProduct.id,
+            name: builderProduct.name,
+            builderGroup: builderProduct.builder_group,
+            builderSize: Number(builderProduct.builder_size || 0),
+            perBoxPrice: Number(builderProduct.price || 0),
+            boxQuantity: next,
+            selections: {}
+        };
+
+    }
+
+    // A full re-render is needed either way: growing from 0 must reveal
+    // the embedded selector, and shrinking to 0 must hide it again.
+    renderManualMenuItems();
+    updateManualOrderSummary();
+
+}
+
+function changeManualBuilderCookieQuantity(builderProductId, cookieId, cookieName, change) {
+
+    const box = manualBuilderBoxes[builderProductId];
+
+    if (!box) return;
+
+    const current = (box.selections[cookieId] && box.selections[cookieId].quantity) || 0;
+    const next = Math.max(0, current + change);
+
+    if (next === 0) {
+        delete box.selections[cookieId];
+    } else {
+        box.selections[cookieId] = { name: cookieName, quantity: next };
+    }
+
+    renderManualMenuItems();
+    updateManualOrderSummary();
+
+}
+
+function removeManualBuilderStaleSelection(builderProductId, cookieId) {
+
+    const box = manualBuilderBoxes[builderProductId];
+
+    if (!box) return;
+
+    delete box.selections[cookieId];
+
+    renderManualMenuItems();
+    updateManualOrderSummary();
+
+}
+
+/** Every Mix & Match box currently in an invalid state (see
+ *  js/mix-and-match.js validateBoxSelection), used to disable Save and
+ *  show inline messages -- boxes with no issue are excluded. */
+function getManualBuilderValidationIssues() {
+
+    return Object.values(manualBuilderBoxes)
+        .map(box => {
+            const liveProduct = menuItems.find(m => String(m.id) === String(box.id));
+            const eligibleCookies = liveProduct
+                ? MixAndMatch.getEligibleCookies(menuItems, liveProduct)
+                : [];
+
+            const validation = MixAndMatch.validateBoxSelection(
+                box.builderSize,
+                box.boxQuantity,
+                builderSelectionsToArray(box.selections),
+                eligibleCookies
+            );
+
+            return { box, validation };
+        })
+        .filter(({ validation }) => validation.status !== "ok");
+
+}
+
+function updateManualSaveButtonState() {
+
+    const saveBtn = document.querySelector("#manualOrderModal .modal-footer .primary-btn");
+
+    if (!saveBtn) return;
+
+    const hasIssues = getManualBuilderValidationIssues().length > 0;
+
+    saveBtn.disabled = hasIssues;
+    saveBtn.title = hasIssues
+        ? "Fix the Mix & Match selection issues above before saving."
+        : "";
+
+}
+
 function updateManualOrderSummary() {
 
-    const totalItems = OrderEditor.computeManualOrderItemCount(manualOrderItems, manualBuilderItems);
+    const totalItems =
+        OrderEditor.computeManualOrderItemCount(manualOrderItems, manualUnresolvedBuilderItems) +
+        OrderEditor.computeBuilderBoxItemCount(manualBuilderBoxes);
 
     const subtotal = getManualOrderSubtotal();
 
     setText("manualTotalItems", totalItems);
     setText("manualSubtotal", `€${subtotal.toFixed(2)}`);
+
+    updateManualSaveButtonState();
 
 }
 
@@ -1310,7 +1585,8 @@ function getManualOrderItems() {
 
 function getManualOrderSubtotal() {
 
-    return OrderEditor.computeManualOrderSubtotal(manualOrderItems, manualBuilderItems);
+    return OrderEditor.computeManualOrderSubtotal(manualOrderItems, manualUnresolvedBuilderItems) +
+        OrderEditor.computeBuilderBoxSubtotal(manualBuilderBoxes);
 
 }
 
@@ -1342,8 +1618,19 @@ async function saveManualOrder() {
 
     const items = getManualOrderItems();
 
-    if (!items.length && !manualBuilderItems.length) {
+    const hasBuilderBoxes = Object.values(manualBuilderBoxes)
+        .some(box => Number(box.boxQuantity || 0) > 0);
+
+    if (!items.length && !manualUnresolvedBuilderItems.length && !hasBuilderBoxes) {
         alert("Please add at least one item.");
+        return;
+    }
+
+    // Backstop for the disabled Save button (belt-and-braces in case it
+    // was somehow bypassed): never write an order with an incomplete,
+    // excessive, or stale Mix & Match selection.
+    if (getManualBuilderValidationIssues().length) {
+        alert("Please fix the Mix & Match selection issues before saving.");
         return;
     }
 
@@ -1490,11 +1777,15 @@ if (editingOrderId) {
 
 }
 
-    // BUG-02 fix: built by the shared, tested OrderEditor module. Preserved
-    // builder/unresolvable lines are carried through exactly as loaded,
-    // including their original builder_details, so re-inserting order_items
-    // on save can never silently drop a Mix & Match box.
-    const orderItems = OrderEditor.buildOrderItemsPayload(order.id, manualOrderItems, manualBuilderItems);
+    // BUG-02 fix: built by the shared, tested OrderEditor module. Any
+    // unresolvable preserved lines are carried through exactly as loaded,
+    // and every Mix & Match box (new or edited) is built fresh from its
+    // live selections -- so re-inserting order_items on save can never
+    // silently drop or corrupt a box.
+    const orderItems = [
+        ...OrderEditor.buildOrderItemsPayload(order.id, manualOrderItems, manualUnresolvedBuilderItems),
+        ...OrderEditor.buildBuilderBoxOrderItems(order.id, manualBuilderBoxes)
+    ];
 
     const { error: itemError } = await supabaseClient
         .from("order_items")
@@ -1576,6 +1867,16 @@ function escapeHtml(text) {
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
+
+}
+
+function escapeJs(value) {
+
+    return String(value || "")
+        .replaceAll("\\", "\\\\")
+        .replaceAll("'", "\\'")
+        .replaceAll('"', "&quot;")
+        .replaceAll("\n", " ");
 
 }
 
@@ -1709,10 +2010,18 @@ async function editOrder(orderId) {
     // BUG-02 fix: partitioned by the shared, tested OrderEditor module so a
     // builder line (or any line with no resolvable menu_item_id) can never
     // collide with another under the single key `null` the way the old
-    // inline logic here did.
+    // inline logic here did. Builder lines are then matched back to their
+    // live builder products (by name -- see groupBuilderItemsByLiveProduct)
+    // so their existing Mix & Match selections load pre-filled and fully
+    // editable; anything that can't be matched stays preserved, remove-only.
     const partitioned = OrderEditor.partitionOrderItemsForEditing(order.order_items);
     manualOrderItems = partitioned.flatItemsById;
-    manualBuilderItems = partitioned.builderItems;
+
+    const liveBuilderProducts = menuItems.filter(m => m.product_type === "builder");
+    const grouped = OrderEditor.groupBuilderItemsByLiveProduct(partitioned.builderItems, liveBuilderProducts);
+
+    manualBuilderBoxes = grouped.builderBoxesById;
+    manualUnresolvedBuilderItems = grouped.unresolvedBuilderItems;
 
    renderManualMenuItems();
 updateManualOrderSummary();
@@ -1734,5 +2043,7 @@ window.openManualOrderModal = openManualOrderModal;
 window.closeManualOrderModal = closeManualOrderModal;
 window.toggleManualOrderType = toggleManualOrderType;
 window.changeManualItemQuantity = changeManualItemQuantity;
-window.removeManualBuilderItem = removeManualBuilderItem;
+window.changeManualBuilderCookieQuantity = changeManualBuilderCookieQuantity;
+window.removeManualBuilderStaleSelection = removeManualBuilderStaleSelection;
+window.removeManualUnresolvedBuilderItem = removeManualUnresolvedBuilderItem;
 window.saveManualOrder = saveManualOrder;
