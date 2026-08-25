@@ -279,7 +279,7 @@ ${item.featured
 : ""}
 
 ${!item.available
-? `<span class="disabled-pill">Hidden</span>`
+? `<span class="disabled-pill">Archived</span>`
 : ""}
 
 </div>
@@ -386,12 +386,16 @@ onclick="updateSortOrder('${item.id}',1)">
 
 <button
 class="remove-option-btn"
+title="${item.available
+    ? "Remove from the public menu, New Order picker, and Mix & Match selectors -- past orders and sales keep showing it exactly as they were."
+    : "Make available on the public menu and New Order picker again."}"
 onclick="toggleMenuAvailability('${item.id}',${Boolean(item.available)})">
-${item.available ? "Hide" : "Show"}
+${item.available ? "Archive" : "Restore"}
 </button>
 
 <button
 class="delete-btn"
+title="Permanently delete -- only allowed for an item that has never been used in any order or sale."
 onclick="deleteMenuItem('${item.id}','${escapeJs(item.name)}')">
 Delete
 </button>
@@ -919,9 +923,63 @@ async function toggleFeatured(itemId, currentValue) {
     await loadMenuManager();
 }
 
+/**
+ * A menu product referenced by any past order or sale must never be
+ * physically deleted -- order_items.menu_item_id / sale_items.menu_item_id
+ * both SET NULL (not RESTRICT/CASCADE) on delete, so nothing in Postgres
+ * itself stops this at the database level; every historical row would
+ * survive with its own frozen name/price/quantity intact, but its link
+ * back to this product would be silently severed, and any future
+ * reporting that leans on that link (see js/admin-sales.js
+ * getItemCategory) would quietly degrade. This is the application-level
+ * guard: counts real references so deleteMenuItem can refuse before that
+ * ever happens.
+ */
+async function countMenuItemReferences(itemId) {
+    const [orderItemsResult, saleItemsResult] = await Promise.all([
+        supabaseClient
+            .from("order_items")
+            .select("id", { count: "exact", head: true })
+            .eq("menu_item_id", itemId),
+        supabaseClient
+            .from("sale_items")
+            .select("id", { count: "exact", head: true })
+            .eq("menu_item_id", itemId)
+    ]);
+
+    if (orderItemsResult.error || saleItemsResult.error) {
+        return { error: orderItemsResult.error || saleItemsResult.error };
+    }
+
+    return {
+        orderCount: orderItemsResult.count || 0,
+        saleCount: saleItemsResult.count || 0
+    };
+}
+
 async function deleteMenuItem(itemId, itemName) {
+
+    const references = await countMenuItemReferences(itemId);
+
+    if (references.error) {
+        console.error(references.error);
+        alert(
+            `Could not check whether "${itemName}" is used in any past orders or sales, so it was not deleted. Please try again.`
+        );
+        return;
+    }
+
+    const { orderCount, saleCount } = references;
+
+    if (orderCount > 0 || saleCount > 0) {
+        alert(
+            `"${itemName}" can't be permanently deleted -- it's used in ${orderCount} order${orderCount === 1 ? "" : "s"} and ${saleCount} sale${saleCount === 1 ? "" : "s"}, and deleting it would disconnect that history.\n\nUse Archive instead: it removes "${itemName}" from the public menu, the New Order picker, and Mix & Match selectors right away, while every past order, sale, and report keeps showing it exactly as it was.`
+        );
+        return;
+    }
+
     const confirmed = confirm(
-        `Delete "${itemName}"?\n\nThis cannot be undone.`
+        `Permanently delete "${itemName}"?\n\nIt has never been used in any order or sale, so this is safe -- but it cannot be undone.`
     );
 
     if (!confirmed) return;
