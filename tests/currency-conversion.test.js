@@ -81,14 +81,40 @@ test("8. a sale can show a USD loss even on positive EUR revenue if USD cost exc
    Item-level USD figures + same-rate-for-whole-sale guarantee
    ========================================== */
 
-test("9. computeUsdLineFigures mirrors the sale-level formula for one line", () => {
+test("9. computeUsdLineFigures mirrors the sale-level formula for one line (quantity 1)", () => {
+    const result = CurrencyConversion.computeUsdLineFigures({
+        lineRevenue: 20.00,
+        totalCost: 5.00,
+        quantity: 1,
+        rate: 1.1567
+    });
+
+    assert.equal(result.usdLineRevenue, 23.13); // 20 * 1.1567 = 23.134 -> 23.13
+    assert.equal(result.usdLineProfit, 18.13);
+});
+
+test("9b. computeUsdLineFigures multiplies the PER-UNIT cost by quantity, matching the EUR-side formula -- the exact bug found auditing Product Breakdown", () => {
+    // totalCost is per unit (as sale_items.total_cost / buildSaleLineItems
+    // store it), so a quantity-3 line must have 3x the cost subtracted,
+    // not 1x.
+    const result = CurrencyConversion.computeUsdLineFigures({
+        lineRevenue: 0,
+        totalCost: 0.65, // per unit
+        quantity: 3,
+        rate: 1.1435
+    });
+
+    assert.equal(result.usdLineRevenue, 0);
+    assert.equal(result.usdLineProfit, -1.95); // -(0.65 * 3), NOT -0.65
+});
+
+test("9c. computeUsdLineFigures defaults quantity to 1 when omitted, so an existing caller passing an already-per-line total is unaffected", () => {
     const result = CurrencyConversion.computeUsdLineFigures({
         lineRevenue: 20.00,
         totalCost: 5.00,
         rate: 1.1567
     });
 
-    assert.equal(result.usdLineRevenue, 23.13); // 20 * 1.1567 = 23.134 -> 23.13
     assert.equal(result.usdLineProfit, 18.13);
 });
 
@@ -111,13 +137,14 @@ test("10. applyRateToSaleLines uses the SAME rate for every line, and a sale's u
     assert.equal(saleUsdRevenue, sumOfLines);
 });
 
-test("11. applyRateToSaleLines on a Mix & Match sale: parent line carries all USD revenue, child lines carry only USD cost (0 revenue)", () => {
+test("11. applyRateToSaleLines on a Mix & Match sale: parent line carries all USD revenue, child lines carry only USD cost (0 revenue), correctly multiplied by each child's own quantity", () => {
     // Mirrors the BUG-01 parent/child shape from sale-calculations.js:
     // parent owns 100% of revenue, children own cost/quantity only.
+    // total_cost is PER UNIT, exactly as sale_items stores it.
     const lines = [
-        { item_name: "6 Mix & Match Cookies", line_revenue: 15.00, total_cost: 0 }, // parent
-        { item_name: "Peanut Butter Cup", line_revenue: 0, total_cost: 0.65 * 3 }, // child
-        { item_name: "Brown Butter Sea Salt Chocolate Chip", line_revenue: 0, total_cost: 0.65 * 3 } // child
+        { item_name: "6 Mix & Match Cookies", line_revenue: 15.00, total_cost: 0, quantity: 1 }, // parent
+        { item_name: "Peanut Butter Cup", line_revenue: 0, total_cost: 0.65, quantity: 3 }, // child
+        { item_name: "Brown Butter Sea Salt Chocolate Chip", line_revenue: 0, total_cost: 0.65, quantity: 3 } // child
     ];
 
     const result = CurrencyConversion.applyRateToSaleLines(lines, 1.1435);
@@ -128,7 +155,7 @@ test("11. applyRateToSaleLines on a Mix & Match sale: parent line carries all US
     assert.equal(parent.usd_line_revenue, CurrencyConversion.convertEurToUsd(15.00, 1.1435));
     children.forEach(child => {
         assert.equal(child.usd_line_revenue, 0); // 0 EUR revenue converts to exactly 0 USD
-        assert.ok(child.usd_line_profit < 0); // pure cost, no revenue -> negative
+        assert.equal(child.usd_line_profit, -1.95); // -(0.65 per unit * 3), not -0.65
     });
 
     // The sale's total USD revenue (sum of all lines) must equal converting
@@ -137,6 +164,18 @@ test("11. applyRateToSaleLines on a Mix & Match sale: parent line carries all US
         result.reduce((sum, line) => sum + line.usd_line_revenue, 0)
     );
     assert.equal(totalUsdRevenue, parent.usd_line_revenue);
+});
+
+test("11a. usd_line_profit for a multi-quantity line is multiplied by quantity -- reproduces the exact live bug found auditing Product Breakdown (sale 0c2be140..., 'Brown Butter Sea Salt Chocolate Chip' x6)", () => {
+    const lines = [
+        { item_name: "6 Mix & Match Cookies", line_revenue: 15.00, total_cost: 0, quantity: 1 },
+        { item_name: "Brown Butter Sea Salt Chocolate Chip", line_revenue: 0, total_cost: 0.65, quantity: 6 }
+    ];
+
+    const result = CurrencyConversion.applyRateToSaleLines(lines, 1.1377);
+
+    // Before the fix this incorrectly returned -0.65 (missing * quantity).
+    assert.equal(result[1].usd_line_profit, -3.90);
 });
 
 test("11b. applyRateToSaleLines reconciles exactly even when independently rounding each line would disagree with the sale total by a cent (real production case: sale 60d040a3, 2026-07-26 @ 1.1377)", () => {

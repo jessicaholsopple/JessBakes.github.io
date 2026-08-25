@@ -96,14 +96,23 @@
         };
     }
 
-    /** Same shape as computeUsdSaleFigures, for one sale_items line. */
-    function computeUsdLineFigures({ lineRevenue, totalCost, rate }) {
+    /**
+     * Same shape as computeUsdSaleFigures, for one sale_items line.
+     * totalCost here is PER UNIT (matching sale_items.total_cost /
+     * sale-calculations.js's buildSaleLineItems, which stores food_cost +
+     * packaging_cost per unit, not pre-multiplied by quantity) -- so it
+     * must be multiplied by quantity here, exactly as the EUR-side
+     * line_profit already is (line_revenue - totalCost * quantity).
+     * quantity defaults to 1 for a caller that already has a per-line
+     * (not per-unit) total, so a single-unit line's result is unchanged.
+     */
+    function computeUsdLineFigures({ lineRevenue, totalCost, quantity, rate }) {
         const usdLineRevenue = convertEurToUsd(lineRevenue, rate);
         if (usdLineRevenue === null) return null;
 
         return {
             usdLineRevenue,
-            usdLineProfit: roundCents(usdLineRevenue - toNumber(totalCost))
+            usdLineProfit: roundCents(usdLineRevenue - toNumber(totalCost) * toNumber(quantity, 1))
         };
     }
 
@@ -162,10 +171,16 @@
                 ? roundCents(naiveRounded[index] + residual)
                 : naiveRounded[index];
 
+            // BUG (found during the Product Breakdown audit): line.total_cost
+            // is PER UNIT (see sale-calculations.js buildSaleLineItems), so
+            // it must be multiplied by the line's own quantity here -- the
+            // same way the EUR-side line_profit already is -- or every line
+            // with quantity > 1 silently understates its true USD cost (and
+            // overstates its USD profit) by a factor of its own quantity.
             return {
                 ...line,
                 usd_line_revenue: usdLineRevenue,
-                usd_line_profit: roundCents(usdLineRevenue - toNumber(line.total_cost))
+                usd_line_profit: roundCents(usdLineRevenue - toNumber(line.total_cost) * toNumber(line.quantity, 1))
             };
         });
     }

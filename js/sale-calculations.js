@@ -338,12 +338,163 @@
         return { lines, totals };
     }
 
+    /* ==========================================
+       PRODUCT BREAKDOWN (reporting-only reclassification)
+       ==========================================
+
+       Once a sale's lines are written to sale_items, the table itself
+       keeps no parent/child link -- every row (a Mix & Match box's own
+       revenue-owning "parent" line, each of its selected flavors' cost-
+       owning "child" lines, and every ordinary standalone line) sits
+       there as an independent row with no `source` column. Per-product
+       reporting that just groups sale_items by item_name therefore shows
+       a box's revenue and profit as identical (its own line_profit is
+       always exactly its line_revenue, since its cost is 0 by design)
+       and shows each of its selected flavors as a separate product with
+       $0 revenue and negative profit -- both numbers are individually
+       correct, but attributed to the wrong "products".
+
+       classifySaleItems fixes the ATTRIBUTION only, never a dollar
+       figure: it re-derives, from the sale's own ORIGINAL order_items
+       (still available and immutable once a sale exists -- see BUG-22),
+       which stored sale_items rows are which box's parent/children, and
+       tags each row with the product name it should be grouped under.
+       buildProductBreakdown then aggregates using that tag. Every
+       revenue/cost/profit value summed is still exactly what was
+       computed and frozen at sale-creation time.
+       ========================================== */
+
+    /** First not-yet-claimed row in `rows` matching `predicate`, or null. */
+    function findAndClaim(rows, claimed, predicate) {
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            if (!claimed.has(row.id) && predicate(row)) {
+                return row;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Tags each of one sale's sale_items rows with the product name it
+     * should be grouped under for reporting (`bucketName`) and whether
+     * its quantity represents "units of that bucket" or a different unit
+     * of measure that shouldn't be added to the bucket's displayed count
+     * (`isBundleChild` -- a selected flavor's quantity is a cookie/item
+     * count, not a "how many boxes" count).
+     *
+     * Matching a stored row back to the parent/child it came from is by
+     * exact (item_name, quantity, unit_price) match against the values
+     * buildSaleLineItems would have produced for it -- never fuzzy, never
+     * by name pattern. Every one of those stored values was copied
+     * byte-for-byte from a line this same module produced at sale-
+     * creation time, so an exact match is safe. If a sale's order_items
+     * are unavailable, or a specific parent/child can't be matched
+     * (missing or malformed builder_details -- a real, observed case in
+     * this data: an old order line added before the admin editor could
+     * capture Mix & Match selections), those rows are simply left
+     * grouped under their own item_name -- the original, pre-fix
+     * behavior -- so this can only improve attribution, never hide or
+     * corrupt a row.
+     */
+    function classifySaleItems(saleItems, orderItems) {
+        const rows = (saleItems || []).map(item => ({ ...item }));
+        const claimed = new Set();
+        const bucketNameById = new Map();
+        const isChildById = new Map();
+
+        (orderItems || []).forEach(orderItem => {
+            const selections =
+                orderItem && orderItem.builder_details && Array.isArray(orderItem.builder_details.selections)
+                    ? orderItem.builder_details.selections
+                    : null;
+
+            if (!selections || !selections.length) return;
+
+            const bucketName = orderItem.item_name;
+            const orderQuantity = toNumber(orderItem.quantity, 0);
+            const expectedParentPrice = toNumber(orderItem.price_at_purchase, 0);
+
+            const parent = findAndClaim(rows, claimed, row =>
+                row.item_name === bucketName &&
+                toNumber(row.total_cost, 0) === 0 &&
+                toNumber(row.unit_price, 0) === expectedParentPrice
+            );
+
+            if (!parent) return;
+
+            claimed.add(parent.id);
+            bucketNameById.set(parent.id, bucketName);
+            isChildById.set(parent.id, false);
+
+            selections.forEach(selection => {
+                const expectedQuantity = toNumber(selection && selection.quantity, 0) * orderQuantity;
+                if (expectedQuantity <= 0) return;
+
+                const child = findAndClaim(rows, claimed, row =>
+                    row.item_name === (selection && selection.name) &&
+                    toNumber(row.unit_price, 0) === 0 &&
+                    toNumber(row.quantity, 0) === expectedQuantity
+                );
+
+                if (!child) return;
+
+                claimed.add(child.id);
+                bucketNameById.set(child.id, bucketName);
+                isChildById.set(child.id, true);
+            });
+        });
+
+        return rows.map(row => ({
+            ...row,
+            bucketName: bucketNameById.get(row.id) || row.item_name,
+            isBundleChild: isChildById.get(row.id) || false
+        }));
+    }
+
+    /**
+     * Aggregates classified sale_items rows (see classifySaleItems, one
+     * call covering as many sales' rows as needed) into per-product
+     * totals for a Product Breakdown table or export. Sums the same
+     * already-frozen revenue/cost/profit fields Analytics always reads,
+     * just grouped by bucketName instead of raw item_name -- so a Mix &
+     * Match box's row carries its full revenue plus every one of its
+     * children's real costs, revenue - cost = profit holds exactly for
+     * every row (each contributing row's own profit was already correct;
+     * summing it preserves that identity), and nothing is double-counted.
+     */
+    function buildProductBreakdown(classifiedRows) {
+        const totals = {};
+
+        (classifiedRows || []).forEach(row => {
+            const name = row.bucketName || row.item_name || "Unknown Item";
+
+            if (!totals[name]) {
+                totals[name] = { name, quantity: 0, revenue: 0, cost: 0, profit: 0 };
+            }
+
+            const quantity = toNumber(row.quantity, 0);
+
+            if (!row.isBundleChild) {
+                totals[name].quantity += quantity;
+            }
+
+            totals[name].revenue += toNumber(row.line_revenue, 0);
+            totals[name].cost += toNumber(row.total_cost, 0) * quantity;
+            totals[name].profit += toNumber(row.line_profit, 0);
+        });
+
+        return Object.values(totals).sort((a, b) => b.revenue - a.revenue);
+    }
+
     return {
         buildReferenceData,
         buildSaleLineItems,
         buildSaleFromOrder,
         summarizeLines,
         computeMargin,
-        computeSaleFromOrder
+        computeSaleFromOrder,
+        classifySaleItems,
+        buildProductBreakdown
     };
 });

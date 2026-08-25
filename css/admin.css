@@ -3151,6 +3151,13 @@ MENU CARD REDESIGN
     color: #7b2e1f;
 }
 
+/* Product Breakdown needs one more column (adds Cost) than the other
+   tables sharing .sales-table-row's base styling, so it overrides just
+   the grid template rather than changing the shared 4-column default. */
+.product-breakdown-row {
+    grid-template-columns: 2fr .7fr .9fr .9fr .9fr;
+}
+
 .dashboard-card p {
     line-height: 1.55;
 }
@@ -4312,6 +4319,10 @@ html {
         font-size: .78rem;
         gap: 6px;
         padding: 10px 0;
+    }
+
+    .product-breakdown-row {
+        grid-template-columns: 1.6fr .6fr .8fr .8fr .8fr;
     }
 
     /* ---------- General card density (menu/inventory/packaging/

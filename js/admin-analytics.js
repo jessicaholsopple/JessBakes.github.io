@@ -57,7 +57,8 @@ async function loadAnalytics() {
         .from("sales")
         .select(`
             *,
-            sale_items(*)
+            sale_items(*),
+            orders(order_items(*))
         `)
         .order("completed_at", { ascending: false });
 
@@ -73,6 +74,13 @@ async function loadAnalytics() {
     // never the original EUR revenue/line_revenue columns (which stay
     // untouched, frozen, in the database). *_cost columns are already
     // USD-denominated, so they're unchanged.
+    //
+    // order_items (fetched via the sale's own order_id) is carried through
+    // untouched, purely so Product Breakdown can reclassify Mix & Match
+    // parent/child sale_items rows by their original builder_details --
+    // see js/sale-calculations.js classifySaleItems. It contributes no
+    // dollar figures of its own; every number displayed still comes from
+    // the frozen sale_items columns above.
     analyticsSales = (data || []).map(sale => ({
         ...sale,
         revenue: Number(sale.usd_revenue) || 0,
@@ -80,6 +88,7 @@ async function loadAnalytics() {
         packaging_cost: Number(sale.packaging_cost) || 0,
         total_cost: Number(sale.total_cost) || 0,
         profit: Number(sale.usd_profit) || 0,
+        order_items: Array.isArray(sale.orders?.order_items) ? sale.orders.order_items : [],
         sale_items: Array.isArray(sale.sale_items)
             ? sale.sale_items.map(item => ({
                 ...item,
@@ -455,18 +464,20 @@ function renderProductBreakdown(sales) {
 
     container.innerHTML = `
         <div class="sales-table">
-            <div class="sales-table-row sales-table-header">
+            <div class="sales-table-row product-breakdown-row sales-table-header">
                 <span>Product</span>
                 <span>Units</span>
                 <span>Revenue</span>
+                <span>Cost</span>
                 <span>Profit</span>
             </div>
 
             ${products.map((product, index) => `
-                <div class="sales-table-row">
+                <div class="sales-table-row product-breakdown-row">
                     <span>${index + 1}. ${escapeHtml(product.name)}</span>
                     <span>${product.quantity}</span>
                     <span>${usd(product.revenue)}</span>
+                    <span>${usd(product.cost)}</span>
                     <strong>${usd(product.profit)}</strong>
                 </div>
             `).join("")}
@@ -517,30 +528,17 @@ function getProductTotals(sales) {
 }
 
 function getProductAnalytics(sales) {
-    const totals = {};
+    // Reclassify each sale's sale_items independently (a box's parent/
+    // children only ever live within their own sale), then aggregate all
+    // of them together -- see js/sale-calculations.js classifySaleItems/
+    // buildProductBreakdown for why this is needed: a Mix & Match box's
+    // selected flavors must be folded into the box's own product row,
+    // never shown as their own $0-revenue, negative-profit "products".
+    const classifiedRows = sales.flatMap(sale =>
+        SaleCalculations.classifySaleItems(sale.sale_items, sale.order_items)
+    );
 
-    sales.forEach(sale => {
-        sale.sale_items.forEach(item => {
-            const name = item.item_name || "Unknown Item";
-
-            if (!totals[name]) {
-                totals[name] = {
-                    name,
-                    quantity: 0,
-                    revenue: 0,
-                    cost: 0,
-                    profit: 0
-                };
-            }
-
-            totals[name].quantity += item.quantity;
-            totals[name].revenue += item.line_revenue;
-            totals[name].cost += item.total_cost * item.quantity;
-            totals[name].profit += item.line_profit;
-        });
-    });
-
-    return Object.values(totals).sort((a, b) => b.revenue - a.revenue);
+    return SaleCalculations.buildProductBreakdown(classifiedRows);
 }
 
 function getTopProduct(sales) {
