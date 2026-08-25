@@ -437,7 +437,8 @@ function renderOrderCard(order) {
 
     <button
         class="delete-btn"
-        onclick="deleteOrder('${order.id}')">
+        id="delete-btn-${order.id}"
+        onclick="deleteOrder('${order.id}', '${escapeJs(order.customer_name)}', '${escapeJs(formatDate(order.pickup_date || order.event_date))}', '${order.status}')">
 
         Delete
 
@@ -1022,19 +1023,98 @@ function promptManualExchangeRate(dateStr) {
    DELETE
 ========================================== */
 
-async function deleteOrder(orderId) {
+async function deleteOrder(orderId, customerName, dateLabel, status) {
 
-    if (!confirm("Delete this order?")) return;
+    // BUG (Delete didn't work): the confirm dialog never identified which
+    // order was about to be deleted (customerName/dateLabel now come
+    // straight from the button's own onclick, so this shows instantly
+    // with no network round-trip), and there was no live re-check before
+    // deleting -- a completed order (which owns a permanent, frozen sale
+    // record -- see BUG-22 in createSaleFromOrder/editOrder) could be
+    // deleted here with the order/order_items FK set to CASCADE but the
+    // sales.order_id FK set to SET NULL, silently orphaning that sale
+    // instead of failing loudly. There was also no loading state on the
+    // button and no check that the delete actually removed a row -- if
+    // Supabase RLS ever silently matched zero rows (a real, silent
+    // Postgres RLS behavior: a DELETE that a policy blocks affects 0
+    // rows, with NO error), the button would look like it did nothing.
 
-    const { error } = await supabaseClient
+    if (!confirm(`Delete ${customerName}'s order (${dateLabel})?\n\nThis cannot be undone.`)) return;
+
+    const button = document.getElementById(`delete-btn-${orderId}`);
+    const originalLabel = button ? button.textContent.trim() : "Delete";
+
+    function setDeleting(isDeleting) {
+        if (!button) return;
+        button.disabled = isDeleting;
+        button.textContent = isDeleting ? "Deleting..." : originalLabel;
+    }
+
+    setDeleting(true);
+
+    // Re-check the order's *live* status right before deleting, the same
+    // BUG-22 guard already used for editing -- so an order that's already
+    // completed (or was completed by someone else while this confirm
+    // dialog was open) can never be silently deleted out from under its
+    // finalized sale.
+    const { data: liveOrder, error: statusCheckError } = await supabaseClient
+        .from("orders")
+        .select("status")
+        .eq("id", orderId)
+        .maybeSingle();
+
+    if (statusCheckError) {
+
+        console.error(statusCheckError);
+        alert(`Could not delete this order: ${statusCheckError.message}`);
+        setDeleting(false);
+        return;
+
+    }
+
+    if (!liveOrder) {
+
+        alert("This order no longer exists — it may have already been deleted.");
+        await loadOrderManager();
+        return;
+
+    }
+
+    if (!OrderEditor.isOrderEditable(liveOrder)) {
+
+        alert(
+            "This order is already completed and has a permanent sales record. To protect that sales history, completed orders can't be deleted from here."
+        );
+        setDeleting(false);
+        await loadOrderManager(); // its status may have just changed
+        return;
+
+    }
+
+    // .select("id") so a silently-blocked RLS delete (0 rows affected,
+    // no error) is distinguishable from a real success.
+    const { data, error } = await supabaseClient
         .from("orders")
         .delete()
-        .eq("id", orderId);
+        .eq("id", orderId)
+        .select("id");
 
     if (error) {
 
         console.error(error);
-        alert(error.message);
+        alert(`Could not delete this order: ${error.message}`);
+        setDeleting(false);
+        return;
+
+    }
+
+    if (!data || data.length === 0) {
+
+        alert(
+            "This order could not be deleted — you may not have permission, or it may have already been removed. The list has been refreshed."
+        );
+        setDeleting(false);
+        await loadOrderManager();
         return;
 
     }
