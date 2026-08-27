@@ -11,17 +11,22 @@
    exists, per "do not create a second ballot system."
 
    Also controls which of the normal marketing sections (hero,
-   "Stay Updated," Current Favorites, the suggestion form, Community
-   Favorites, the closing promo section -- everything tagged
-   `.js-vacation-hide` in index.html) are visible: they start `hidden`
-   directly in the HTML so neither the normal homepage nor the
-   vacation homepage ever flashes the wrong one while this status
-   check is in flight. If this script never resolves for any reason
-   (a bug, a blocked/failed script load that still let this far,
-   an unexpected hang), a short watchdog timeout reveals the normal
-   homepage rather than leaving it blank forever -- see
-   index.html's <noscript> block for the JS-disabled case, which this
-   doesn't cover.
+   "Stay Updated," Current Favorites, the community suggestion form,
+   the closing promo section -- everything tagged `.js-vacation-hide`
+   in index.html) are visible: they start `hidden` directly in the
+   HTML so neither the normal homepage nor the vacation homepage ever
+   flashes the wrong one while this status check is in flight. If
+   this script never resolves for any reason (a bug, a blocked/failed
+   script load that still let this far, an unexpected hang), a short
+   watchdog timeout reveals the normal homepage rather than leaving it
+   blank forever -- see index.html's <noscript> block for the
+   JS-disabled case, which this doesn't cover.
+
+   Community Favorites ("Last Week's Winners", .community-favorites)
+   is deliberately NOT tagged `.js-vacation-hide` -- unlike the
+   suggestion form next to it, previous ballot winners are kept
+   visible in both normal and active-vacation homepages, so this
+   script never touches it at all.
    ========================================== */
 
 const VACATION_HOMEPAGE_WATCHDOG_MS = 4000;

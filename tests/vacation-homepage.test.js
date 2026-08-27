@@ -8,12 +8,19 @@
    active; shows the ballot teaser only when an active ballot exists,
    and omits it cleanly (no empty card) otherwise; the marketing
    sections (.js-vacation-hide -- hero, Stay Updated, Current
-   Favorites, suggestion form, Community Favorites, closing promo)
-   are revealed only when vacation is confirmed INACTIVE, and left
+   Favorites, the community suggestion form, closing promo) are
+   revealed only when vacation is confirmed INACTIVE, and left
    untouched (still hidden, their default state in the real HTML)
    when active; a watchdog reveals the normal homepage if the status
    check never resolves, so a bug can never leave the homepage
    permanently blank.
+
+   Community Favorites ("Last Week's Winners", .community-favorites)
+   is deliberately EXCLUDED from .js-vacation-hide -- previous ballot
+   winners stay visible in both normal and active-vacation homepages,
+   same as the ballot voting section and the footer. This was fixed
+   after a real production report: it had been wrongly lumped in with
+   the marketing sections and was vanishing during active vacations.
 
    Same node:vm sandbox technique as the other vacation-mode tests.
    ========================================== */
@@ -67,9 +74,12 @@ function loadHomepageSandbox(options) {
         return elements.get(id);
     }
 
-    // Simulates the 6 real .js-vacation-hide elements, each starting
-    // hidden:true (their default state in the real HTML).
-    const marketingElements = ["hero", "divider", "currentFavorites", "suggestion", "communityFavorites", "promo"]
+    // Simulates the 5 real .js-vacation-hide elements, each starting
+    // hidden:true (their default state in the real HTML). Community
+    // Favorites ("Last Week's Winners") is deliberately NOT included --
+    // it is never tagged .js-vacation-hide and this script never
+    // touches it, so it stays visible in every state.
+    const marketingElements = ["hero", "divider", "currentFavorites", "suggestion", "promo"]
         .map(name => ({ name, hidden: true }));
 
     const supabaseClient = makeSupabaseClient(options);
@@ -240,10 +250,18 @@ test("12. the watchdog timeout is registered and cleared once the status check r
 test("14. index.html: every .js-vacation-hide marketing section starts with the hidden attribute (no flash of normal content while JS is still loading)", () => {
     const html = read("index.html");
     const taggedSections = html.match(/<[a-z]+[^>]*class="[^"]*js-vacation-hide[^"]*"[^>]*>/g) || [];
-    assert.ok(taggedSections.length >= 6, "expected hero, its divider, Current Favorites, suggestion form, Community Favorites, and the closing promo section");
+    assert.equal(taggedSections.length, 5, "expected exactly hero, its divider, Current Favorites, the community suggestion form, and the closing promo section -- Community Favorites (previous winners) must NOT be one of these");
     for (const tag of taggedSections) {
         assert.match(tag, /\bhidden\b/, `element missing default hidden attribute: ${tag}`);
     }
+});
+
+test("14b. index.html: Community Favorites (\"Last Week's Winners\", previous ballot winners) is never tagged .js-vacation-hide and never starts hidden -- it must stay visible during an active vacation, not just when inactive", () => {
+    const html = read("index.html");
+    const tag = html.match(/<section class="community-favorites"[^>]*>/);
+    assert.ok(tag, "expected <section class=\"community-favorites\"> with no other classes");
+    assert.doesNotMatch(tag[0], /js-vacation-hide/);
+    assert.doesNotMatch(tag[0], /\bhidden\b/);
 });
 
 test("15. index.html: #vacationSection also starts hidden by default", () => {
@@ -263,14 +281,39 @@ test("17. index.html: the 'See the Menu' button no longer exists in the Vacation
     assert.doesNotMatch(section, /See the Menu/);
 });
 
-test("18. index.html: with hero/Current Favorites/suggestion/Community Favorites/promo all hidden, the surviving visible top-level sections are nav, vacation box, ballot, then footer, in that DOM order", () => {
+test("18. index.html: with hero/Current Favorites/suggestion/promo all hidden, the surviving visible top-level sections are nav, vacation box, ballot, previous winners, then footer, in that DOM order", () => {
     const html = read("index.html");
-    const markers = ["<header class=\"site-header\">", "<section id=\"vacationSection\"", "<section class=\"ballot-section\">", "<footer class=\"footer\">"];
+    const markers = [
+        "<header class=\"site-header\">",
+        "<section id=\"vacationSection\"",
+        "<section class=\"ballot-section\">",
+        "<section class=\"community-favorites\">",
+        "<footer class=\"footer\">"
+    ];
     const positions = markers.map(m => html.indexOf(m));
     assert.ok(positions.every(p => p !== -1), "one or more expected landmark elements not found");
     for (let i = 1; i < positions.length; i++) {
         assert.ok(positions[i] > positions[i - 1], `expected ${markers[i - 1]} to appear before ${markers[i]}`);
     }
+});
+
+test("19. active vacation -> the vacation-homepage script never queries or touches .community-favorites -- previous winners render independently and stay visible", async () => {
+    const { sandbox, elements } = loadHomepageSandbox({ vacationRow: { id: "cycle-1", heading: "Away" } });
+    // Simulate the real element as always-visible, untouched by this script.
+    elements.set("communityFavorites", { id: "communityFavorites", hidden: false });
+
+    await sandbox.__initVacationHomepageSection();
+
+    assert.equal(elements.get("communityFavorites").hidden, false);
+});
+
+test("20. inactive vacation (normal homepage) -> Community Favorites is also left alone (was never hidden by this script to begin with)", async () => {
+    const { sandbox, elements } = loadHomepageSandbox({ vacationRow: null });
+    elements.set("communityFavorites", { id: "communityFavorites", hidden: false });
+
+    await sandbox.__initVacationHomepageSection();
+
+    assert.equal(elements.get("communityFavorites").hidden, false);
 });
 
 test("13. if resolution never happens, firing the watchdog reveals the normal homepage (fail-safe, never permanently blank)", async () => {
