@@ -258,6 +258,25 @@ test("21. computeReadiness: zero eligible recipients blocks readiness", () => {
     assert.ok(result.reasons.some(r => /recipient/i.test(r)));
 });
 
+/* ==========================================
+   formatBakeryDateTime
+   ========================================== */
+
+test("23. formatBakeryDateTime formats a real ISO timestamp in Europe/Berlin, never 'Invalid Date'", () => {
+    // 2026-09-14T10:30:00Z is 12:30 PM in Berlin (CEST, UTC+2) in September.
+    const label = VacationMode.formatBakeryDateTime("2026-09-14T10:30:00.000Z");
+    assert.match(label, /September 14, 2026/);
+    assert.match(label, /12:30\s*PM/);
+    assert.doesNotMatch(label, /Invalid/);
+});
+
+test("24. formatBakeryDateTime returns an empty string for missing/invalid input rather than throwing or showing 'Invalid Date'", () => {
+    assert.equal(VacationMode.formatBakeryDateTime(null), "");
+    assert.equal(VacationMode.formatBakeryDateTime(undefined), "");
+    assert.equal(VacationMode.formatBakeryDateTime(""), "");
+    assert.equal(VacationMode.formatBakeryDateTime("not-a-date"), "");
+});
+
 test("22. computeReadiness: multiple simultaneous problems are all reported, not just the first", () => {
     const result = VacationMode.computeReadiness({
         ...READY_BASE,

@@ -1,7 +1,18 @@
-// Public endpoint: the ONLY way a subscriber row is ever created or
-// reactivated. Deployed with JWT verification ON (the anon key
-// satisfies it); real protection against abuse is the honeypot +
-// rate limit + email format checks below, not the JWT.
+// Public endpoint: the ONLY way a subscriber row is ever created,
+// reactivated, or has its preferences changed. Deployed with JWT
+// verification ON (the anon key satisfies it); real protection
+// against abuse is the honeypot + rate limit + email format checks
+// below, not the JWT.
+//
+// Backward compatible with the original single-category widget
+// (js/newsletter.js, still live on index.html's hero section): a
+// request with no `preferences` object is treated exactly as before
+// (an implicit "menu announcements" signup, gated by the existing
+// `consent` checkbox). The newer preference-aware widget
+// (js/subscribe-widget.js, used by the Vacation Mode homepage section
+// and Menu vacation notice) sends an explicit `preferences` object
+// instead of `consent` -- selecting at least one preference IS the
+// consent for that category, validated both client- and server-side.
 import { getAdminClient } from "../_shared/supabaseAdmin.ts";
 import { corsHeaders, handlePreflight } from "../_shared/cors.ts";
 import { validateSignup, normalizeEmail, sanitizeName, isRateLimited } from "../_shared/validation.mjs";
@@ -10,6 +21,7 @@ import { newsletterWelcomeKey } from "../_shared/idempotency.mjs";
 const PRIVACY_VERSION = "2026-08-18";
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
+const ALLOWED_SOURCES = ["newsletter_form", "vacation_homepage", "vacation_menu"];
 
 async function hashIp(ip: string): Promise<string> {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ip));
@@ -63,13 +75,40 @@ Deno.serve(async (req) => {
     const email = normalizeEmail(body.email);
     const name = sanitizeName(body.name);
     const honeypot = body.website || body.honeypot; // hidden field name kept generic
-    const consentChecked = body.consent === true;
+
+    // Preferences: an explicit `preferences` object (the newer,
+    // category-aware widget) or, if absent, the legacy implicit
+    // "menu announcements" signup (the original single-category form).
+    const hasPreferences = body.preferences && typeof body.preferences === "object";
+    const requestedPreferences = hasPreferences
+        ? {
+            pref_reopening_alerts: body.preferences.reopeningAlerts === true,
+            pref_menu_announcements: body.preferences.menuAnnouncements === true,
+            pref_general_updates: body.preferences.generalUpdates === true
+        }
+        : { pref_reopening_alerts: false, pref_menu_announcements: true, pref_general_updates: false };
+
+    const anyPreferenceSelected =
+        requestedPreferences.pref_reopening_alerts ||
+        requestedPreferences.pref_menu_announcements ||
+        requestedPreferences.pref_general_updates;
+
+    if (hasPreferences && !anyPreferenceSelected) {
+        // Same "still a 200" convention as every other soft-rejection
+        // below -- never a 4xx that helps a bot distinguish failure
+        // reasons.
+        return new Response(JSON.stringify({ ok: false, reason: "preference_required" }), { status: 200, headers });
+    }
+
+    const source = ALLOWED_SOURCES.includes(body.source) ? body.source : "newsletter_form";
+
+    // Selecting at least one preference IS the consent for the
+    // preference-aware widget; the legacy widget still requires its
+    // own explicit checkbox.
+    const consentChecked = body.consent === true || (hasPreferences && anyPreferenceSelected);
 
     const validation = validateSignup({ email, honeypot, consentChecked });
     if (!validation.ok) {
-        // A bot/invalid submission still gets a 200 with ok:false and no
-        // detail beyond a generic reason -- never a 4xx that helps an
-        // attacker distinguish "your bot got caught" from "bad input."
         return new Response(JSON.stringify({ ok: false, reason: validation.reason }), { status: 200, headers });
     }
 
@@ -87,13 +126,15 @@ Deno.serve(async (req) => {
 
     const { data: existing } = await adminClient
         .from("subscribers")
-        .select("id, status, consent_event_id")
+        .select("id, status, consent_event_id, pref_reopening_alerts, pref_menu_announcements, pref_general_updates")
         .eq("email", email)
         .maybeSingle();
 
     let subscriberId: string;
     let consentEventId: string;
     let shouldWelcome: boolean;
+    let alreadySubscribed: boolean;
+    let preferencesUpdated: boolean;
 
     if (!existing) {
         const { data: created, error } = await adminClient
@@ -102,8 +143,9 @@ Deno.serve(async (req) => {
                 email, name,
                 status: "active",
                 consent_at: new Date().toISOString(),
-                consent_source: "newsletter_form",
-                privacy_version: PRIVACY_VERSION
+                consent_source: source,
+                privacy_version: PRIVACY_VERSION,
+                ...requestedPreferences
             })
             .select("id, consent_event_id")
             .single();
@@ -115,19 +157,41 @@ Deno.serve(async (req) => {
         subscriberId = created.id;
         consentEventId = created.consent_event_id;
         shouldWelcome = true;
-    } else if (existing.status !== "active") {
-        // Resubscribe after unsubscribe/bounce/complaint: fresh consent,
-        // reactivated -- the subscribers trigger mints a new
-        // consent_event_id automatically on this status transition.
+        alreadySubscribed = false;
+        preferencesUpdated = anyPreferenceSelected;
+    } else {
+        // Additive-only merge -- never turns an existing true
+        // preference false. A subscriber who already gets menu
+        // announcements and now also asks for reopening alerts keeps
+        // both; nothing already-consented-to is silently removed.
+        const mergedPreferences = {
+            pref_reopening_alerts: existing.pref_reopening_alerts === true || requestedPreferences.pref_reopening_alerts,
+            pref_menu_announcements: existing.pref_menu_announcements === true || requestedPreferences.pref_menu_announcements,
+            pref_general_updates: existing.pref_general_updates === true || requestedPreferences.pref_general_updates
+        };
+        preferencesUpdated =
+            mergedPreferences.pref_reopening_alerts !== (existing.pref_reopening_alerts === true) ||
+            mergedPreferences.pref_menu_announcements !== (existing.pref_menu_announcements === true) ||
+            mergedPreferences.pref_general_updates !== (existing.pref_general_updates === true);
+
+        const reactivating = existing.status !== "active";
+
+        const updatePayload: Record<string, unknown> = {
+            ...mergedPreferences,
+            consent_at: new Date().toISOString(),
+            consent_source: source,
+            privacy_version: PRIVACY_VERSION,
+            name: name || undefined
+        };
+        if (reactivating) {
+            // The subscribers trigger mints a fresh consent_event_id
+            // automatically on this status transition.
+            updatePayload.status = "active";
+        }
+
         const { data: updated, error } = await adminClient
             .from("subscribers")
-            .update({
-                status: "active",
-                name: name || undefined,
-                consent_at: new Date().toISOString(),
-                consent_source: "newsletter_form",
-                privacy_version: PRIVACY_VERSION
-            })
+            .update(updatePayload)
             .eq("id", existing.id)
             .select("id, consent_event_id")
             .single();
@@ -138,13 +202,12 @@ Deno.serve(async (req) => {
 
         subscriberId = updated.id;
         consentEventId = updated.consent_event_id;
-        shouldWelcome = true;
-    } else {
-        // Already an active subscriber -- friendly no-op, no retroactive
-        // welcome email, no consent record churn.
-        subscriberId = existing.id;
-        consentEventId = existing.consent_event_id;
-        shouldWelcome = false;
+        // A welcome email only ever fires on a genuine 0->active
+        // transition (brand new subscriber or a resubscribe) -- never
+        // for an already-active subscriber who's just adding one more
+        // preference category.
+        shouldWelcome = reactivating;
+        alreadySubscribed = !reactivating;
     }
 
     if (shouldWelcome) {
@@ -163,5 +226,8 @@ Deno.serve(async (req) => {
         }
     }
 
-    return new Response(JSON.stringify({ ok: true, alreadySubscribed: !shouldWelcome }), { status: 200, headers });
+    return new Response(
+        JSON.stringify({ ok: true, alreadySubscribed, preferencesUpdated }),
+        { status: 200, headers }
+    );
 });

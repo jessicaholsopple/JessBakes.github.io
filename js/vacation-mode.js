@@ -168,11 +168,39 @@
         return { ready: reasons.length === 0, reasons };
     }
 
+    /**
+     * Formats an ISO timestamp for public/admin display in the
+     * bakery's own local time (Europe/Berlin -- the same timezone
+     * `email_settings.weekly_timezone` defaults to; pickup happens at
+     * one physical location, so this is deliberately NOT the
+     * visitor's device timezone). Returns "" for a missing/invalid
+     * date rather than "Invalid Date".
+     */
+    function formatBakeryDateTime(iso) {
+        if (!iso) {
+            return "";
+        }
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) {
+            return "";
+        }
+        return new Intl.DateTimeFormat("en-US", {
+            timeZone: "Europe/Berlin",
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit"
+        }).format(date);
+    }
+
     return {
         isVacationActive,
         buildMenuSnapshotKey,
         isRecipientEligible,
         describeRecipientCategories,
-        computeReadiness
+        computeReadiness,
+        formatBakeryDateTime
     };
 });

@@ -17,6 +17,13 @@ async function loadMenu() {
 
     container.innerHTML = "<p>Loading menu...</p>";
 
+    const vacation = await fetchActiveVacationStatusForMenu();
+
+    if (typeof VacationMode !== "undefined" && VacationMode.isVacationActive(vacation)) {
+        await renderMenuVacationNotice(vacation);
+        return;
+    }
+
     const { data, error } = await supabaseClient
         .from("menu_items")
         .select("*")
@@ -207,6 +214,82 @@ function formatPrice(price) {
     return value
         .toFixed(2)
         .replace(/\.00$/, "");
+
+}
+
+/* ==========================================
+   VACATION MODE -- Menu page notice
+
+   Checked BEFORE the orderable-menu query even runs, so no Add to
+   Cart control or checkout modal is ever created while a vacation is
+   active (initializeCart() is simply never called). Fails OPEN on a
+   query error -- see the identical reasoning in js/cart.js's
+   isOrderingPausedForVacation(), which independently re-checks at
+   checkout time regardless of what this page rendered.
+   ========================================== */
+
+async function fetchActiveVacationStatusForMenu() {
+
+    const { data, error } = await supabaseClient
+        .from("vacation_periods")
+        .select("id, heading, message, reopen_at, next_pickup_at")
+        .maybeSingle();
+
+    if (error) {
+        console.error(error);
+        return null;
+    }
+
+    return data || null;
+
+}
+
+async function renderMenuVacationNotice(vacation) {
+
+    const container = document.getElementById("menuContainer");
+    const reopenLabel = typeof VacationMode !== "undefined"
+        ? VacationMode.formatBakeryDateTime(vacation.reopen_at)
+        : "";
+
+    container.innerHTML = `
+        <article class="notice-card vacation-notice">
+            <h2>${escapeHtml(vacation.heading || "We're on a baking break!")}</h2>
+            ${vacation.message ? `<p>${escapeHtml(vacation.message).replace(/\n/g, "<br>")}</p>` : ""}
+            ${reopenLabel ? `<p><strong>Ordering reopens:</strong> ${escapeHtml(reopenLabel)}</p>` : ""}
+            <div id="menuVacationBallotLink" class="vacation-ballot-link" hidden>
+                <a href="index.html#ballotContainer">Help choose what we bake next &rarr;</a>
+            </div>
+            <div id="menuVacationSubscribeMount"></div>
+        </article>
+    `;
+
+    if (typeof mountSubscribeWidget === "function") {
+        mountSubscribeWidget("menuVacationSubscribeMount", "vacation_menu");
+    }
+
+    const hasBallot = await checkActiveBallotExistsForMenu();
+    const link = document.getElementById("menuVacationBallotLink");
+    if (link) {
+        link.hidden = !hasBallot;
+    }
+
+}
+
+async function checkActiveBallotExistsForMenu() {
+
+    const { data, error } = await supabaseClient
+        .from("ballot_settings")
+        .select("id")
+        .eq("active", true)
+        .limit(1)
+        .maybeSingle();
+
+    if (error) {
+        console.error(error);
+        return false;
+    }
+
+    return !!data;
 
 }
 

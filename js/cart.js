@@ -788,12 +788,55 @@ function toggleCustomOrderDetails() {
 
 
 /* ==========================================
+   VACATION MODE GUARD
+
+   A fresh, live check (never a cached flag) so that if Vacation Mode
+   is turned on while a customer already has this page open, they
+   still can't slip an order through. Independent of menu.js's own
+   vacation check (which normally prevents this UI from ever being
+   reachable in the first place, by never calling initializeCart()
+   while a vacation is active) -- this is defense in depth, not the
+   only guard. Fails OPEN (treats a query error as "not on vacation")
+   so an unrelated network hiccup can never block ordinary ordering
+   the rest of the year; see js/vacation-mode.js for the pure
+   eligibility/status logic this mirrors.
+========================================== */
+
+async function isOrderingPausedForVacation() {
+    if (typeof supabaseClient === "undefined") {
+        return false;
+    }
+
+    const { data, error } = await supabaseClient
+        .from("vacation_periods")
+        .select("id")
+        .maybeSingle();
+
+    if (error) {
+        console.error(error);
+        return false;
+    }
+
+    return typeof VacationMode !== "undefined"
+        ? VacationMode.isVacationActive(data)
+        : !!(data && data.id);
+}
+
+const VACATION_ORDER_PAUSED_MESSAGE =
+    "We're on a baking break right now and can't take new orders. Check the Menu page for details on when we reopen!";
+
+/* ==========================================
    OPEN / CLOSE
 ========================================== */
 
-function openCheckoutModal() {
+async function openCheckoutModal() {
     if (!cart.length) {
         alert("Your cart is empty.");
+        return;
+    }
+
+    if (await isOrderingPausedForVacation()) {
+        alert(VACATION_ORDER_PAUSED_MESSAGE);
         return;
     }
 
@@ -901,6 +944,11 @@ function renderCheckoutSummary() {
 
 async function submitOrder(event) {
     event.preventDefault();
+
+    if (await isOrderingPausedForVacation()) {
+        alert(VACATION_ORDER_PAUSED_MESSAGE);
+        return;
+    }
 
     const submitButton = event.target.querySelector("button[type='submit']");
 
