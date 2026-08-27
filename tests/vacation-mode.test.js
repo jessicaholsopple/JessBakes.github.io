@@ -177,6 +177,45 @@ test("13. isRecipientEligible: null/undefined subscriber never throws, never eli
     assert.equal(VacationMode.isRecipientEligible(undefined, "cycle-a"), false);
 });
 
+test("13a. isRecipientEligible: menu_announcements category turned OFF excludes an otherwise-eligible subscriber", () => {
+    assert.equal(
+        VacationMode.isRecipientEligible(
+            { status: "active", pref_menu_announcements: true, pref_reopening_alerts: false },
+            "cycle-a",
+            { reopeningAlerts: true, menuAnnouncements: false, generalUpdates: false }
+        ),
+        false
+    );
+});
+
+test("13b. isRecipientEligible: general_updates category turned ON includes a general-updates-only subscriber", () => {
+    assert.equal(
+        VacationMode.isRecipientEligible(
+            { status: "active", pref_menu_announcements: false, pref_reopening_alerts: false, pref_general_updates: true },
+            "cycle-a",
+            { reopeningAlerts: true, menuAnnouncements: true, generalUpdates: true }
+        ),
+        true
+    );
+});
+
+test("13c. isRecipientEligible: omitting categories defaults to reopening+menu, matching the SQL function's own default", () => {
+    assert.equal(
+        VacationMode.isRecipientEligible(
+            { status: "active", pref_menu_announcements: true },
+            "cycle-a"
+        ),
+        true
+    );
+    assert.equal(
+        VacationMode.isRecipientEligible(
+            { status: "active", pref_general_updates: true },
+            "cycle-a"
+        ),
+        false
+    );
+});
+
 /* ==========================================
    describeRecipientCategories
    ========================================== */

@@ -81,25 +81,46 @@
         return JSON.stringify(rows);
     }
 
+    const DEFAULT_RECIPIENT_CATEGORIES = {
+        reopeningAlerts: true,
+        menuAnnouncements: true,
+        generalUpdates: false
+    };
+
     /**
-     * Mirrors public.vacation_eligible_subscribers(p_cycle_id) exactly:
+     * Mirrors public.vacation_eligible_subscribers(p_cycle_id) exactly,
+     * including its per-cycle category gating (the `categories` param
+     * mirrors that cycle's recipients_reopening_alerts /
+     * recipients_menu_announcements / recipients_general_updates
+     * columns -- omit it to get the same default set the SQL function
+     * assumes when none is given: reopening alerts + menu
+     * announcements, never general-updates-only):
      *   status = 'active'
-     *   AND ( pref_menu_announcements
-     *         OR (pref_reopening_alerts AND fulfilled cycle != this one) )
+     *   AND ( (menuAnnouncements category AND pref_menu_announcements)
+     *         OR (reopeningAlerts category AND pref_reopening_alerts
+     *             AND fulfilled cycle != this one)
+     *         OR (generalUpdates category AND pref_general_updates) )
      */
-    function isRecipientEligible(subscriber, cycleId) {
+    function isRecipientEligible(subscriber, cycleId, categories) {
+        const cats = categories || DEFAULT_RECIPIENT_CATEGORIES;
+
         if (!subscriber || subscriber.status !== "active") {
             return false;
         }
 
-        if (subscriber.pref_menu_announcements === true) {
+        if (cats.menuAnnouncements && subscriber.pref_menu_announcements === true) {
             return true;
         }
 
-        return !!(
+        if (
+            cats.reopeningAlerts &&
             subscriber.pref_reopening_alerts === true &&
             subscriber.reopening_alert_fulfilled_cycle_id !== cycleId
-        );
+        ) {
+            return true;
+        }
+
+        return !!(cats.generalUpdates && subscriber.pref_general_updates === true);
     }
 
     /** Human-readable labels for whichever recipient categories a
