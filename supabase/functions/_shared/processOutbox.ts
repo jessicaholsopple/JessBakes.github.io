@@ -8,9 +8,10 @@
 // guard; sanitized-only error storage; retry backoff) is enforced
 // here once, not per call site.
 import { sendViaResend } from "./resend.ts";
-import { orderReceivedEmail, orderConfirmedEmail, orderCancelledEmail, newsletterWelcomeEmail, weeklyMenuEmail, adminNewOrderEmail } from "./templates.mjs";
+import { orderReceivedEmail, orderConfirmedEmail, orderCancelledEmail, newsletterWelcomeEmail, weeklyMenuEmail, vacationReopeningEmail, adminNewOrderEmail } from "./templates.mjs";
 import { resolveSendRecipient, isPermanentFailure, nextOutboxState } from "./retry.mjs";
 import { generateUnsubscribeToken, hashToken, buildUnsubscribeUrl } from "./token.mjs";
+import { buildVacationReopeningMenuItems } from "./menu.mjs";
 
 const SITE_URL = "https://jessbakessourdough.com";
 const ORDERS_FROM = "Jess Bakes Sourdough <orders@jessbakessourdough.com>";
@@ -23,6 +24,22 @@ function sanitizeError(message: string | undefined): string {
 
 function shortOrderRef(orderId: string): string {
     return String(orderId).replace(/-/g, "").slice(0, 8);
+}
+
+/** Mirrors js/vacation-mode.js's formatBakeryDateTime -- same
+ * Europe/Berlin timezone (one physical pickup location, not the
+ * recipient's device timezone), same output shape. Kept as a small
+ * local helper rather than a shared module since nothing else in the
+ * Deno functions needs it yet. */
+function formatBakeryDateTime(iso: string | null | undefined): string {
+    if (!iso) return "";
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat("en-US", {
+        timeZone: "Europe/Berlin",
+        weekday: "long", month: "long", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit"
+    }).format(date);
 }
 
 async function mintUnsubscribeLink(adminClient: any, subscriberId: string) {
@@ -172,6 +189,72 @@ async function renderForRow(adminClient: any, row: any) {
         return {
             from: MENU_FROM,
             subject: settings?.weekly_subject || "This Week's Menu at Jess Bakes Sourdough",
+            html: rendered.html,
+            text: rendered.text
+        };
+    }
+
+    if (row.email_type === "vacation_reopening") {
+        let cycle: any = null;
+        let menuItems: any[] = [];
+
+        if (row.campaign_id) {
+            // The normal path: a real campaign already exists (created
+            // by resumeOrdering+buildAndSendVacationCampaign), so the
+            // menu is the exact snapshot taken at that moment.
+            const { data: campaign } = await adminClient
+                .from("email_campaigns")
+                .select("id, menu_snapshot")
+                .eq("id", row.campaign_id)
+                .maybeSingle();
+            if (!campaign) return null;
+            menuItems = campaign.menu_snapshot || [];
+
+            const { data: cycleByCampaign } = await adminClient
+                .from("vacation_periods")
+                .select("email_subject, email_intro, email_closing, next_pickup_at")
+                .eq("campaign_id", row.campaign_id)
+                .maybeSingle();
+            if (!cycleByCampaign) return null;
+            cycle = cycleByCampaign;
+        } else {
+            // A "Send Test Email" row created before any real campaign
+            // exists for this cycle -- fall back to the single active
+            // cycle and a fresh live menu read (there is no snapshot
+            // to reuse yet).
+            const { data: activeCycle } = await adminClient
+                .from("vacation_periods")
+                .select("email_subject, email_intro, email_closing, next_pickup_at")
+                .eq("status", "active")
+                .limit(1)
+                .maybeSingle();
+            if (!activeCycle) return null;
+            cycle = activeCycle;
+
+            const { data: menuRows } = await adminClient
+                .from("menu_items")
+                .select("id, name, description, price, available, product_type");
+            menuItems = buildVacationReopeningMenuItems(menuRows || []);
+        }
+
+        let unsubscribeUrl = `${SITE_URL}/unsubscribe.html`;
+        if (row.recipient_ref_id) {
+            unsubscribeUrl = await mintUnsubscribeLink(adminClient, row.recipient_ref_id);
+        }
+
+        const pickupLabel = formatBakeryDateTime(cycle.next_pickup_at) || "Soon -- check the Menu for details.";
+
+        const rendered = vacationReopeningEmail({
+            introMessage: cycle.email_intro || "We're back from vacation and ordering is now open!",
+            closingMessage: cycle.email_closing || "",
+            pickupLabel,
+            items: menuItems,
+            unsubscribeUrl
+        });
+
+        return {
+            from: MENU_FROM,
+            subject: cycle.email_subject || "We're back! Ordering is open again",
             html: rendered.html,
             text: rendered.text
         };

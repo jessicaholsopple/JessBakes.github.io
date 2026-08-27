@@ -1,0 +1,43 @@
+name: Deploy Vacation Mode Edge Functions
+
+# Manual trigger only, deliberately -- same reasoning as
+# deploy-email-functions.yml / deploy-push-notifications.yml:
+# deploying a function is a real, user-facing change and should be a
+# conscious action, never an automatic side effect of a push.
+#
+# Uses the SAME repository secret as the other deploy workflows
+# (SUPABASE_ACCESS_TOKEN) -- no new GitHub secret is needed.
+#
+# newsletter-subscribe itself (extended in this feature to accept the
+# new preferences/source fields) is already covered by
+# deploy-email-functions.yml -- re-run that workflow too after merging
+# this feature if you need that specific change live.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        run: supabase link --project-ref fbfvqiuhwqfhhxufgmla
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      # All three are JWT-verified: callable only by an authenticated
+      # admin session or the service-role JWT (pg_cron, for
+      # vacation-scheduler). Each independently checks
+      # is_admin()/service-role -- see _shared/supabaseAdmin.ts.
+      - name: Deploy Vacation Mode functions
+        run: |
+          supabase functions deploy vacation-campaign
+          supabase functions deploy vacation-resume
+          supabase functions deploy vacation-scheduler
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

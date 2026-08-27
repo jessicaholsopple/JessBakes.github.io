@@ -320,6 +320,58 @@ test("menu: weeklyMenuSkipReason flags empty menus and load failures without eve
     assert.equal(m.weeklyMenuSkipReason([{ name: "x", priceEur: 1 }]), null);
 });
 
+test("menu: buildMenuSnapshotKey (server) is byte-for-byte identical to VacationMode.buildMenuSnapshotKey (client) for the same input", async () => {
+    // Two independent implementations (no shared build step between
+    // the browser UMD script and this Deno ESM module) that MUST
+    // agree, since the admin's client-side preview-staleness check
+    // compares a client-computed key against one this server module
+    // produces. This is the safeguard against them drifting apart.
+    const VacationMode = require("../js/vacation-mode.js");
+    const m = await import(SHARED + "menu.mjs");
+
+    const fixtures = [
+        [],
+        [{ id: "1", name: "Sourdough Boule", price: 8, available: true, description: "Classic", product_type: "standard" }],
+        [
+            { id: "2", name: "Cookie", price: 3.5, available: true, description: "", product_type: "standard" },
+            { id: "1", name: "Sourdough Boule", price: 8, available: true, description: "Classic", product_type: "standard" },
+            { id: "9", name: "Archived Pie", price: 12, available: false, description: "", product_type: "standard" }
+        ]
+    ];
+
+    for (const items of fixtures) {
+        assert.equal(m.buildMenuSnapshotKey(items), VacationMode.buildMenuSnapshotKey(items));
+    }
+});
+
+test("menu: buildVacationReopeningMenuItems includes productType and excludes unavailable/archived items", async () => {
+    const m = await import(SHARED + "menu.mjs");
+    const rows = [
+        { name: "Sourdough Boule", available: true, category: "bread", sort_order: 1, price: "9.00", description: "Classic", product_type: "standard" },
+        { name: "6 or 12 Cookie Box", available: true, category: "cookie", sort_order: 1, price: "15.00", product_type: "builder" },
+        { name: "Archived Item", available: false, category: "bread", sort_order: 2, price: "5.00", product_type: "standard" }
+    ];
+    const items = m.buildVacationReopeningMenuItems(rows);
+    assert.equal(items.length, 2);
+    assert.ok(items.every(i => i.name !== "Archived Item"));
+    const box = items.find(i => i.name === "6 or 12 Cookie Box");
+    assert.equal(box.productType, "builder");
+    assert.equal(box.priceEur, 15);
+    const loaf = items.find(i => i.name === "Sourdough Boule");
+    assert.equal(loaf.productType, "standard");
+});
+
+test("menu: weeklyMenuSkipReason applies identically to a vacation-reopening item list (shared, not weekly-specific logic)", async () => {
+    const m = await import(SHARED + "menu.mjs");
+    assert.equal(m.weeklyMenuSkipReason(m.buildVacationReopeningMenuItems([])), "empty_menu");
+    assert.equal(
+        m.weeklyMenuSkipReason(m.buildVacationReopeningMenuItems([
+            { name: "x", available: true, category: "bread", sort_order: 1, price: "1", product_type: "standard" }
+        ])),
+        null
+    );
+});
+
 /* ---------------- retry.mjs ---------------- */
 
 test("retry: computeBackoffMs grows exponentially and is capped", async () => {

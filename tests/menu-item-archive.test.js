@@ -306,7 +306,20 @@ test("13. admin-sales.js's category lookup degrades to \"other\" (never throws, 
 test("14. order-confirmation/status emails render from order_items' own stored fields only -- no menu_items dependency", () => {
     const source = read("supabase/functions/_shared/processOutbox.ts");
     assert.match(source, /select\("item_name, quantity, price_at_purchase, line_total"\)/);
-    assert.doesNotMatch(source, /menu_items/);
+
+    // Scoped to just the order_received/order_confirmed/order_cancelled/
+    // admin_new_order branch (from its own `if` down to the next
+    // email-type branch) -- NOT the whole file. Vacation Mode's
+    // reopening-email branch legitimately reads menu_items (a live
+    // published-menu read is the entire point of that feature); this
+    // guard is specifically about order-status emails never depending
+    // on current menu state, not a whole-file ban on the string.
+    const orderBranch = source.slice(
+        source.indexOf('if (row.email_type === "order_received" ||'),
+        source.indexOf('if (row.email_type === "newsletter_welcome")')
+    );
+    assert.ok(orderBranch.length > 0, "order-email branch not found -- test needs updating to match processOutbox.ts's current structure");
+    assert.doesNotMatch(orderBranch, /menu_items/);
 });
 
 test("15. the Sales CSV export renders every line from order_items' own item_name/quantity -- no menu_items dependency", () => {
