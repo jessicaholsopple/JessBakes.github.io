@@ -15,6 +15,25 @@ const CHECKLIST = [
 ];
 
 
+// Canonical menu_items.category values are lowercase/singular
+// ('bread'/'cookie'/'dessert'/'seasonal' -- the same values js/menu.js's
+// public Menu page and _shared/menu.mjs's vacation email both key off
+// of), never the Title-Case plural labels shown to the admin. Mirrors
+// the exact category-label pattern already established in
+// supabase/functions/_shared/menu.mjs's categoryLabel(): a known
+// category gets its nice label and canonical position; a genuinely new
+// category value still gets grouped and shown (title-cased from its raw
+// value) rather than silently vanishing into "Other" -- only a truly
+// missing/empty category value does that.
+const PRODUCTION_CATEGORY_LABELS = { bread: "Bread", cookie: "Cookies", dessert: "Desserts", seasonal: "Seasonal" };
+const PRODUCTION_CATEGORY_ORDER = Object.keys(PRODUCTION_CATEGORY_LABELS);
+const PRODUCTION_OTHER_LABEL = "Other";
+function productionCategoryLabel(raw) {
+    if (!raw) return PRODUCTION_OTHER_LABEL;
+    if (PRODUCTION_CATEGORY_LABELS[raw]) return PRODUCTION_CATEGORY_LABELS[raw];
+    return String(raw).split(/[-_\s]+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
 const MASS={g:1,gram:1,grams:1,kg:1000,kilogram:1000,kilograms:1000,oz:28.3495,ounce:28.3495,ounces:28.3495,lb:453.592,lbs:453.592,pound:453.592,pounds:453.592};
 const VOLUME={ml:1,milliliter:1,milliliters:1,l:1000,liter:1000,liters:1000,tsp:4.92892,teaspoon:4.92892,teaspoons:4.92892,tbsp:14.7868,tablespoon:14.7868,tablespoons:14.7868,cup:236.588,cups:236.588,"fl oz":29.5735,floz:29.5735};
 const COUNT=["each","item","items","count","piece","pieces","unit","units"];
@@ -228,6 +247,24 @@ function buildPlan() {
             ])
         );
 
+    // Builder ("Mix & Match") order_items never carry a stable
+    // menu_item_id -- both js/cart.js (checkout) and js/order-editor.js
+    // (admin editing) deliberately write menu_item_id: null for them, by
+    // design. Resolving the box product back from its item_name is the
+    // SAME resolution strategy already established and tested in
+    // js/sale-calculations.js (menuItemsByBuilderName) and
+    // js/order-editor.js (builderProductsByName) for this exact problem
+    // -- reused here rather than inventing a third interpretation. Used
+    // ONLY to find the box's own packaging profile; every flavor/child
+    // calculation below stays 100% id-based via selection.id and never
+    // touches this map.
+    const builderProductsByName =
+        new Map(
+            data.menu
+                .filter(item => item && item.product_type === "builder" && item.name)
+                .map(item => [String(item.name), item])
+        );
+
     const products = new Map();
     const batches = new Map();
     const ingredients = new Map();
@@ -238,215 +275,219 @@ function buildPlan() {
     let revenue = 0;
     let packagingCost = 0;
 
+    // Reconciliation safety net: every unit counted into itemCount must
+    // end up either in a product's quantity (successfully calculated) or
+    // explicitly subtracted here because a warning dropped it (an
+    // unresolvable menu-item link). If a future change adds a new silent
+    // early-return that skips both, the assertion after the main loop
+    // below catches it and surfaces a warning instead of quietly
+    // shipping an incomplete plan.
+    let droppedQuantity = 0;
+
+    function warn(message, order) {
+        warnings.push(
+            order
+                ? `${message} (${order.customer_name || "customer"}, pickup ${order.pickup_date || "?"})`
+                : message
+        );
+    }
+
+    function addProductQuantity(menuItem, quantity, revenueAmount) {
+        const productKey = String(menuItem.id);
+        const product =
+            products.get(productKey) || {
+                name: menuItem.name,
+                quantity: 0,
+                revenue: 0,
+                category: menuItem.category || "Other"
+            };
+        product.quantity += quantity;
+        product.revenue += revenueAmount;
+        products.set(productKey, product);
+    }
+
+    // Recipe/ingredient demand for one menu item at a given order
+    // quantity. Shared by regular order lines and Mix & Match child
+    // selections -- exactly one implementation, so they can never
+    // silently diverge. Skips the "no recipe assigned" warning entirely
+    // when the product has been explicitly classified as not needing one
+    // (menu_items.requires_recipe = false -- see Admin Menu's "This
+    // product needs a recipe" checkbox); a product with no explicit
+    // classification (requires_recipe absent/true, the default) still
+    // warns exactly as before.
+    function addRecipeDemand(menuItem, quantity, order) {
+        const parentRecipe = recipeMap.get(String(menuItem.recipe_id));
+
+        if (!parentRecipe) {
+            if (menuItem.requires_recipe !== false) {
+                warn(`"${menuItem.name}" does not have a recipe assigned.`, order);
+            }
+            return;
+        }
+
+        const recipeUnits = quantity * Number(menuItem.recipe_units_used || 1);
+        const parentYield = Number(parentRecipe.yield_quantity);
+
+        if (!(parentYield > 0)) {
+            warn(`"${parentRecipe.name}" needs a yield quantity greater than zero.`, order);
+            return;
+        }
+
+        collectRecipeRequirements({
+            recipe: parentRecipe,
+            multiplier: recipeUnits / parentYield,
+            recipeUnits,
+            recipeMap,
+            ingredientMap,
+            ingredientTotals: ingredients,
+            batchTotals: batches,
+            warnings,
+            path: []
+        });
+    }
+
+    // Packaging for one ordinary (non-builder) product line -- unchanged
+    // from before: the item's own packaging_profile_id, times how many
+    // were ordered.
+    function addStandardPackaging(menuItem, quantity, order) {
+        if (!menuItem.packaging_profile_id) {
+            warn(`"${menuItem.name}" does not have a packaging profile assigned.`, order);
+            return;
+        }
+        addPackagingForProfile(menuItem.packaging_profile_id, quantity);
+    }
+
+    // Packaging for a Mix & Match BOX line -- the box's OWN packaging
+    // profile (e.g. "6 Pack Cookie Bags" / "Pastry Boxes"), times the
+    // true number of boxes, added ONCE per box line. The selected
+    // cookies inside it never separately contribute packaging -- doing
+    // so would both double-count materials and require a nonexistent
+    // per-cookie bag for a box that is never actually bagged that way.
+    function addBoxPackaging(boxProduct, boxQuantity, order) {
+        if (boxQuantity <= 0) return;
+        if (!boxProduct.packaging_profile_id) {
+            warn(`"${boxProduct.name}" does not have a packaging profile assigned.`, order);
+            return;
+        }
+        addPackagingForProfile(boxProduct.packaging_profile_id, boxQuantity);
+    }
+
+    function addPackagingForProfile(profileId, quantity) {
+        data.packagingItems
+            .filter(item => String(item.profile_id) === String(profileId))
+            .forEach(profileItem => {
+                const ingredient = ingredientMap.get(String(profileItem.ingredient_id));
+                if (!ingredient) return;
+                addReq(packaging, ingredient, Number(profileItem.quantity || 0) * quantity, "packaging");
+            });
+
+        packagingCost += Number(packagingCostMap.get(String(profileId))?.packaging_cost || 0) * quantity;
+    }
+
     data.orders.forEach(order => {
 
         revenue += Number(order.subtotal || 0);
 
         (order.order_items || []).forEach(orderItem => {
 
-            const itemsToProcess = [];
+            const selections = orderItem.builder_details?.selections;
+            const isBuilder = Array.isArray(selections) && selections.length > 0;
 
-            const isBuilder =
-    !!orderItem.builder_details?.selections?.length;
+            // A builder-type box with NO (or empty) selections is a
+            // malformed or legacy row -- e.g. an order line saved before
+            // the admin editor could capture Mix & Match choices. Never
+            // guess which flavors were picked: surface a specific,
+            // blocking warning naming the order, and still account for
+            // the box's own packaging (that part is fully knowable from
+            // quantity alone, independent of flavor), but never add it
+            // to Product Totals or Recipe Batches, since the flavor
+            // breakdown genuinely cannot be known.
+            if (!isBuilder && orderItem.item_name && builderProductsByName.has(String(orderItem.item_name))) {
+                warn(`"${orderItem.item_name}" is missing its Mix & Match flavor selections -- cannot calculate which cookies to bake. Re-open and re-save this order in Admin Orders to capture them.`, order);
+                const boxProduct = builderProductsByName.get(String(orderItem.item_name));
+                addBoxPackaging(boxProduct, Number(orderItem.quantity || 0), order);
+                return;
+            }
 
-if (orderItem.builder_details?.selections?.length) {
+            if (isBuilder) {
 
-    orderItem.builder_details.selections.forEach(selection => {
+                // The true box count: box_quantity when the admin editor
+                // aggregated more than one box's worth of cookies into a
+                // single row (quantity always 1 in that case -- see
+                // js/order-editor.js), otherwise the line's own quantity
+                // (the public checkout's shape -- see js/cart.js).
+                const boxQuantity =
+                    orderItem.builder_details.box_quantity !== undefined
+                        ? Number(orderItem.builder_details.box_quantity || 0)
+                        : Number(orderItem.quantity || 0);
 
-        itemsToProcess.push({
-            menu_item_id: selection.id,
-            item_name: selection.name,
-            quantity: Number(selection.quantity),
-            line_total: 0
-        });
+                const boxProduct = builderProductsByName.get(String(orderItem.item_name));
 
-    });
+                if (!boxProduct) {
+                    warn(`"${orderItem.item_name}" does not match any current Mix & Match box product -- its packaging cannot be calculated.`, order);
+                } else {
+                    addBoxPackaging(boxProduct, boxQuantity, order);
+                }
 
-} else {
+                // Each selected flavor: its own Product Totals entry (by
+                // its own stable id) and its own recipe/ingredient
+                // demand. Never packaging (already handled once, above,
+                // by the box) and never revenue (the box's line_total
+                // already owns 100% of this line's price -- adding a
+                // per-cookie price here would double-count it).
+                selections.forEach(selection => {
+                    const quantity = Number(selection.quantity || 0);
+                    if (quantity <= 0) return;
 
-    itemsToProcess.push(orderItem);
+                    itemCount += quantity;
 
-}
+                    const menuItem = menuMap.get(String(selection.id));
+                    if (!menuItem) {
+                        warn(`"${selection.name}" (selected inside "${orderItem.item_name}") is not linked to a current menu item.`, order);
+                        droppedQuantity += quantity;
+                        return;
+                    }
 
-         itemsToProcess.forEach(processedItem => {
-
-    const quantity =
-        Number(processedItem.quantity || 0);
-
-    itemCount += quantity;
-
-    const menuItem =
-        menuMap.get(
-            String(processedItem.menu_item_id)
-        );
-
-
-
-
-             
-    if (!menuItem) {   
-
-                warnings.push(
-                    `${processedItem.item_name} is not linked to a current menu item.`
-                );
+                    addProductQuantity(menuItem, quantity, 0);
+                    addRecipeDemand(menuItem, quantity, order);
+                });
 
                 return;
-
             }
 
-            const parentRecipe =
-                recipeMap.get(
-                    String(menuItem.recipe_id)
-                );
+            // ---- Regular (non-builder) order item ----
+            const quantity = Number(orderItem.quantity || 0);
+            itemCount += quantity;
 
-            if (!parentRecipe) {
-
-                warnings.push(
-                    `${menuItem.name} does not have a recipe assigned.`
-                );
-
-            } else {
-
-                const recipeUnits =
-                    quantity *
-                    Number(
-                        menuItem.recipe_units_used || 1
-                    );
-
-                const parentYield =
-                    Number(
-                        parentRecipe.yield_quantity || 1
-                    );
-
-                const parentMultiplier =
-                    recipeUnits / parentYield;
-
-                collectRecipeRequirements({
-                    recipe: parentRecipe,
-                    multiplier: parentMultiplier,
-                    recipeUnits,
-                    recipeMap,
-                    ingredientMap,
-                    ingredientTotals: ingredients,
-                    batchTotals: batches,
-                    warnings,
-                    path: []
-                });
-
+            const menuItem = menuMap.get(String(orderItem.menu_item_id));
+            if (!menuItem) {
+                warn(`"${orderItem.item_name}" is not linked to a current menu item.`, order);
+                droppedQuantity += quantity;
+                return;
             }
 
-            if (!menuItem.packaging_profile_id) {
-
-                warnings.push(
-                    `${menuItem.name} does not have a packaging profile assigned.`
-                );
-
-            } else {
-
-                data.packagingItems
-                    .filter(item =>
-                        String(item.profile_id) ===
-                        String(
-                            menuItem.packaging_profile_id
-                        )
-                    )
-                    .forEach(profileItem => {
-
-                        const ingredient =
-                            ingredientMap.get(
-                                String(
-                                    profileItem.ingredient_id
-                                )
-                            );
-
-                        if (!ingredient) return;
-
-                        addReq(
-                            packaging,
-                            ingredient,
-                            Number(
-                                profileItem.quantity || 0
-                            ) * quantity,
-                            "packaging"
-                        );
-
-                    });
-
-                packagingCost +=
-                    Number(
-                        packagingCostMap.get(
-                            String(
-                                menuItem.packaging_profile_id
-                            )
-                        )?.packaging_cost || 0
-                    ) * quantity;
-
-            }
-                });
+            addProductQuantity(menuItem, quantity, Number(orderItem.line_total || 0));
+            addRecipeDemand(menuItem, quantity, order);
+            addStandardPackaging(menuItem, quantity, order);
 
         });
 
     });
 
-    // Build production totals separately from recipe calculations.
-data.orders.forEach(order => {
+    // Reconciliation assertion (see droppedQuantity above): every counted
+    // unit is either represented in a product's quantity or was
+    // explicitly dropped with its own warning. A mismatch means some
+    // quantity vanished silently -- surface it loudly rather than ship
+    // an incomplete plan without saying so.
+    const accountedQuantity =
+        [...products.values()].reduce((sum, product) => sum + product.quantity, 0) +
+        droppedQuantity;
 
-    (order.order_items || []).forEach(orderItem => {
-
-        // Builder product
-        if (orderItem.builder_details?.selections?.length) {
-
-            orderItem.builder_details.selections.forEach(selection => {
-
-                const menuItem =
-                    menuMap.get(String(selection.id));
-
-                if (!menuItem) return;
-
-                const key = String(menuItem.id);
-
-                const product =
-                    products.get(key) || {
-                        name: menuItem.name,
-                        quantity: 0,
-                        revenue: 0,
-                        category: menuItem.category || "Other"
-                    };
-
-                product.quantity += Number(selection.quantity || 0);
-
-                products.set(key, product);
-
-            });
-
-        } else {
-
-            // Regular product
-            const menuItem =
-                menuMap.get(String(orderItem.menu_item_id));
-
-            if (!menuItem) return;
-
-            const key = String(menuItem.id);
-
-            const product =
-                products.get(key) || {
-                    name: menuItem.name,
-                    quantity: 0,
-                    revenue: 0,
-                    category: menuItem.category || "Other"
-                };
-
-            product.quantity += Number(orderItem.quantity || 0);
-            product.revenue += Number(orderItem.line_total || 0);
-
-            products.set(key, product);
-
-        }
-
-    });
-
-});
+    if (accountedQuantity !== itemCount) {
+        warn(
+            `Reconciliation check failed: ${itemCount} units were ordered but only ${accountedQuantity} are accounted for in this plan. Some quantity may be missing -- do not finish production until this is investigated.`
+        );
+    }
 
     const ingredientRequirements =
         [...ingredients.values()]
@@ -819,8 +860,17 @@ function finalize(x){const have=convert(x.onHandPurchase,x.purchaseUnit,x.recipe
 
 function renderAll(){renderSubtitle();renderRun();renderWarnings();setText("productionOrderCount",plan.orderCount);setText("productionItemCount",fmt(plan.itemCount));setText("productionRevenue",plan.rateAvailable?usd(plan.usdRevenue):"—");setText("productionProfit",plan.rateAvailable?usd(plan.usdProfit):"—");setText("productionShortageCount",plan.shortages.length);renderProducts();renderBatches();renderCosts();renderIngredients();renderShopping();renderPackaging();renderChecklist();renderTimeline();renderOrders();}
 function renderSubtitle(){const d=parseDate(plan.date),el=document.getElementById("productionSubtitle");if(el)el.textContent=d?`Production plan for ${d.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"})}.`:"Select a date.";}
-function renderRun(){document.getElementById("productionCompletedBanner")?.remove();const done=!!data.run?.inventory_deducted,btn=document.getElementById("finishProductionBtn");if(btn){btn.disabled=done;btn.textContent=done?"Production Completed":"Finish Production";}if(done){const b=document.createElement("div");b.id="productionCompletedBanner";b.className="production-completed-banner";b.textContent="Production is complete and inventory has already been deducted for this date.";document.querySelector(".production-kpi-grid")?.before(b);}}
-function renderWarnings(){const el=document.getElementById("productionWarnings"),messages=[];if(!plan.orders.length)messages.push(["info","No pending, confirmed, or ready orders are scheduled for this date."]);plan.warnings.forEach(x=>messages.push(["warning",x]));plan.combined.filter(x=>!x.convertible).forEach(x=>messages.push(["warning",`${x.name}: ${x.purchaseUnit} cannot be converted to ${x.recipeUnit}. Correct its inventory units before finishing production.`]));if(plan.orders.length&&!plan.shortages.length&&!plan.warnings.length)messages.push(["success","All links are complete and inventory covers every calculated requirement."]);el.innerHTML=messages.map(([t,x])=>`<div class="production-warning production-warning-${t}">${esc(x)}</div>`).join("");}
+function renderRun(){document.getElementById("productionCompletedBanner")?.remove();const done=!!data.run?.inventory_deducted,blocked=!done&&hasBlockingErrors(),btn=document.getElementById("finishProductionBtn");if(btn){btn.disabled=done||blocked;btn.title=blocked?"Resolve the blocking warnings above before finishing production -- inventory cannot be deducted safely from an incomplete plan.":"";btn.textContent=done?"Production Completed":blocked?"Finish Production (blocked)":"Finish Production";}if(done){const b=document.createElement("div");b.id="productionCompletedBanner";b.className="production-completed-banner";b.textContent="Production is complete and inventory has already been deducted for this date.";document.querySelector(".production-kpi-grid")?.before(b);}}
+// Every entry in plan.warnings and every inconvertible-unit message
+// represents a plan that cannot be trusted for a safe inventory
+// deduction -- both are rendered as blocking "error" messages and both
+// gate Finish Production (see hasBlockingErrors()/finishProduction()).
+// Inventory shortages are informational only (shown separately via the
+// Shopping List/status badges) and never block finishing -- baking
+// against a known shortage and restocking after is a normal, expected
+// workflow here, not an error.
+function hasBlockingErrors(){return plan.warnings.length>0||plan.combined.some(x=>!x.convertible);}
+function renderWarnings(){const el=document.getElementById("productionWarnings"),messages=[];messages.push(["info",`Includes orders with status Pending, Confirmed, or Ready for this date. Excludes Cancelled orders and Completed orders (already sold -- see Sales).`]);if(!plan.orders.length)messages.push(["info","No pending, confirmed, or ready orders are scheduled for this date."]);plan.warnings.forEach(x=>messages.push(["error",x]));plan.combined.filter(x=>!x.convertible).forEach(x=>messages.push(["error",`${x.name}: ${x.purchaseUnit} cannot be converted to ${x.recipeUnit}. Correct its inventory units before finishing production.`]));if(plan.orders.length&&!hasBlockingErrors())messages.push(["success","All links are complete and inventory covers every calculated requirement."]);el.innerHTML=messages.map(([t,x])=>`<div class="production-warning production-warning-${t}">${esc(x)}</div>`).join("");}
 
 function renderProducts() {
 
@@ -831,11 +881,15 @@ function renderProducts() {
         return;
     }
 
+    // Grouped by the RAW menu_items.category value (matches how
+    // buildPlan() stored it) so two raw values that happen to produce
+    // the same display label can never silently merge; only the header
+    // text and sort position go through productionCategoryLabel().
     const grouped = new Map();
 
     plan.products.forEach(product => {
 
-        const category = product.category || "Other";
+        const category = product.category || "";
 
         if (!grouped.has(category)) {
             grouped.set(category, []);
@@ -849,24 +903,23 @@ function renderProducts() {
         items.sort((a, b) => a.name.localeCompare(b.name));
     });
 
-    const categoryOrder = [
-    "Bread",
-    "Cookies",
-    "Cinnamon Rolls",
-    "Desserts",
-    "Other"
-];
-
 const html = [...grouped.entries()]
     .sort((a, b) => {
 
-        const aIndex = categoryOrder.indexOf(a[0]);
-        const bIndex = categoryOrder.indexOf(b[0]);
+        const aIndex = PRODUCTION_CATEGORY_ORDER.indexOf(a[0]);
+        const bIndex = PRODUCTION_CATEGORY_ORDER.indexOf(b[0]);
 
-        const aSort = aIndex === -1 ? 999 : aIndex;
-        const bSort = bIndex === -1 ? 999 : bIndex;
+        // Known categories (bread/cookie/dessert/seasonal) sort first,
+        // in that canonical order; a genuinely new category value sorts
+        // next, alphabetically by its generated label; "Other" (a truly
+        // missing category) always sorts last.
+        if (a[0] === "" && b[0] !== "") return 1;
+        if (b[0] === "" && a[0] !== "") return -1;
+        if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+        if (aIndex !== -1) return -1;
+        if (bIndex !== -1) return 1;
 
-        return aSort - bSort;
+        return productionCategoryLabel(a[0]).localeCompare(productionCategoryLabel(b[0]));
 
     })
     .map(([category, items]) => {
@@ -880,7 +933,7 @@ const html = [...grouped.entries()]
             <section class="production-category">
 
                 <h2 class="production-category-title">
-                    ${esc(category)} (${fmt(total)})
+                    ${esc(productionCategoryLabel(category))} (${fmt(total)})
                 </h2>
 
                 <div class="production-total-grid">
@@ -910,7 +963,13 @@ const html = [...grouped.entries()]
 }
 
     
-function renderBatches(){const el=document.getElementById("recipeBatches");el.innerHTML=plan.batches.length?plan.batches.map(x=>`<article class="production-batch-card"><div class="production-batch-top"><div><h3>${esc(x.name)}</h3><p>Produces ${fmt(x.recipeUnits)} ${esc(x.yieldUnit)} from a ${fmt(x.yieldQuantity)} ${esc(x.yieldUnit)} base yield.</p></div><span class="production-batch-amount">${fmt(x.batches)}×</span></div>${x.notes?`<p>${esc(x.notes)}</p>`:""}</article>`).join(""):empty("No linked recipes for this date.");}
+function renderBatches(){const el=document.getElementById("recipeBatches");el.innerHTML=plan.batches.length?plan.batches.map(batchRow).join(""):empty("No linked recipes for this date.");}
+// Shows the exact fractional batch count needed AND the practical
+// whole-batch recommendation (rounded up) whenever they differ -- no
+// established whole-batch rounding policy exists elsewhere in this
+// project to defer to, so both figures are shown rather than silently
+// picking one and hiding the other.
+function batchRow(x){const whole=Math.ceil(x.batches-1e-9);const roundedNote=whole>0&&Math.abs(whole-x.batches)>1e-9?`<p class="production-batch-round">Round up to <strong>${whole} whole batch${whole===1?"":"es"}</strong> (${fmt(whole*x.yieldQuantity)} ${esc(x.yieldUnit)} total).</p>`:"";return`<article class="production-batch-card"><div class="production-batch-top"><div><h3>${esc(x.name)}</h3><p>Produces ${fmt(x.recipeUnits)} ${esc(x.yieldUnit)} from a ${fmt(x.yieldQuantity)} ${esc(x.yieldUnit)} base yield.</p></div><span class="production-batch-amount">${fmt(x.batches)}×</span></div>${roundedNote}${x.notes?`<p>${esc(x.notes)}</p>`:""}</article>`;}
 function renderCosts(){
     // BUG-23: revenue/cost/profit/margin report in USD (Ingredient/
     // Packaging/Total cost were already USD, just mislabeled before; only
@@ -990,7 +1049,7 @@ function renderTimeline() {
 function renderOrders(){const el=document.getElementById("includedOrders");el.innerHTML=plan.orders.length?plan.orders.map(o=>`<article class="production-order-card"><div class="production-order-header"><div><h3>${esc(o.customer_name)}</h3><small>${cap(o.status)} · ${o.order_type==="custom"?"Custom Order":"Weekly Pickup"}</small></div><strong>${euro(o.subtotal)}</strong></div><div class="production-order-items">${(o.order_items||[]).map(i=>`<div class="production-order-item"><span>${esc(i.item_name)}</span><strong>${i.quantity}×</strong></div>`).join("")}</div>${o.notes?`<p><strong>Notes:</strong> ${esc(o.notes)}</p>`:""}</article>`).join(""):empty("No active orders are included.");}
 
 async function updateChecklistItem(i,checked,input){input?.closest(".production-check-item")?.classList.toggle("is-complete",checked);const checklist={...(data.run?.checklist||{}),[i]:checked};const {data:run,error}=await supabaseClient.from("production_runs").upsert({production_date:selectedDate(),checklist,status:checked?"in_progress":data.run?.status||"planned",updated_at:new Date().toISOString()},{onConflict:"production_date"}).select().single();if(error){console.error(error);alert("Checklist could not be saved. Run production-setup.sql first.");return;}data.run=run;}
-async function finishProduction(){if(!plan.orders.length){alert("There are no active orders to finish for this date.");return;}if(data.run?.inventory_deducted){alert("Inventory has already been deducted for this date.");return;}if(plan.combined.some(x=>!x.convertible)){alert("Correct incompatible inventory units before finishing production.");return;}if(!confirm("Finish production and deduct all calculated ingredient and packaging quantities from inventory?\n\nThis can only run once for this date."))return;const deductions=plan.combined.map(x=>({ingredient_id:x.ingredientId,quantity_purchase_units:convert(x.required,x.recipeUnit,x.purchaseUnit)||0}));const snapshot={generated_at:new Date().toISOString(),production_date:plan.date,order_ids:plan.orders.map(x=>x.id),products:plan.products,recipes:plan.batches,requirements:plan.combined,revenue:plan.revenue,food_cost:plan.foodCost,packaging_cost:plan.packagingCost,profit:plan.profit};const {data:run,error}=await supabaseClient.rpc("complete_production",{p_production_date:plan.date,p_snapshot:snapshot,p_deductions:deductions});if(error){console.error(error);alert(error.message);return;}data.run=run;await loadReferenceData();await loadSelectedDate();}
+async function finishProduction(){if(!plan.orders.length){alert("There are no active orders to finish for this date.");return;}if(data.run?.inventory_deducted){alert("Inventory has already been deducted for this date.");return;}if(plan.warnings.length){alert("Cannot finish production -- this plan has unresolved warnings and cannot be calculated safely:\n\n"+plan.warnings.join("\n"));return;}if(plan.combined.some(x=>!x.convertible)){alert("Correct incompatible inventory units before finishing production.");return;}if(!confirm(`Finish production and deduct all calculated ingredient and packaging quantities from inventory?\n\nOrders included: ${plan.orderCount}\nIngredient lines: ${plan.ingredientReq.length}\nPackaging lines: ${plan.packagingReq.length}\n\nThis can only run once for this date.`))return;const deductions=plan.combined.map(x=>({ingredient_id:x.ingredientId,quantity_purchase_units:convert(x.required,x.recipeUnit,x.purchaseUnit)||0}));const snapshot={generated_at:new Date().toISOString(),production_date:plan.date,order_ids:plan.orders.map(x=>x.id),products:plan.products,recipes:plan.batches,requirements:plan.combined,revenue:plan.revenue,food_cost:plan.foodCost,packaging_cost:plan.packagingCost,profit:plan.profit};const {data:run,error}=await supabaseClient.rpc("complete_production",{p_production_date:plan.date,p_snapshot:snapshot,p_deductions:deductions});if(error){console.error(error);alert(error.message);return;}data.run=run;await loadReferenceData();await loadSelectedDate();}
 
 function setDefaultDate(){document.getElementById("productionDate").value=dateValue(nextSunday(new Date()));}
 function changeProductionDate(){loadSelectedDate();}

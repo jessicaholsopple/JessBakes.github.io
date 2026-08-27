@@ -403,6 +403,11 @@
     font-weight: 800;
 }
 
+.production-batch-round {
+    color: #7b2b22 !important;
+    font-size: 0.85rem;
+}
+
 .production-shopping-row {
     display: flex;
     justify-content: space-between;

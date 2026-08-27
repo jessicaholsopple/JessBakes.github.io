@@ -468,6 +468,14 @@ function openMenuItemModal(category = null, itemId = null) {
         ? Boolean(item.builder_group)
         : effectiveCategory === "cookie";
 
+    // New item defaults to true (the common case -- almost every product
+    // is baked from a recipe); an existing item reflects its stored value,
+    // defaulting true only when the column is genuinely absent (should
+    // never happen post-migration, but never silently treat a real false
+    // as true).
+    document.getElementById("menuRequiresRecipe").checked =
+        item ? item.requires_recipe !== false : true;
+
     const recipeSelect =
         document.getElementById("menuRecipe");
 
@@ -630,6 +638,24 @@ function buildMenuItemModal() {
                 </div>
 
                 <div id="menuStandardFields">
+                    <div class="modal-checkboxes">
+                        <label>
+                            <input
+                                type="checkbox"
+                                id="menuRequiresRecipe"
+                                checked
+                                onchange="toggleRequiresRecipeField()">
+                            This product needs a recipe
+                        </label>
+                    </div>
+
+                    <p class="field-help">
+                        Uncheck only for a product that is legitimately never
+                        baked from a recipe (e.g. a packaging-only or merch
+                        item). Production will skip its "missing recipe"
+                        warning instead of blocking on it.
+                    </p>
+
                     <label for="menuRecipe">Recipe</label>
                     <select id="menuRecipe">
                         <option value="">Select Recipe</option>
@@ -735,6 +761,24 @@ function toggleMenuProductFields() {
         cookieBuilderField.style.display =
             productType === "standard" && category === "cookie" ? "block" : "none";
     }
+
+    toggleRequiresRecipeField();
+}
+
+/** Disables (rather than hides) the Recipe select when "This product
+ *  needs a recipe" is unchecked -- the choice stays visible/reviewable,
+ *  it just can't be edited while irrelevant. Mirrors the requires_recipe
+ *  column added for the Production audit (2026-08-27). */
+function toggleRequiresRecipeField() {
+    const requiresRecipe =
+        document.getElementById("menuRequiresRecipe")?.checked ?? true;
+
+    const recipeSelect =
+        document.getElementById("menuRecipe");
+
+    if (recipeSelect) {
+        recipeSelect.disabled = !requiresRecipe;
+    }
 }
 
 
@@ -794,6 +838,9 @@ const builderSize =
         document.getElementById("menuBuilderSize").value
     ) || 4;
 
+const requiresRecipe =
+    document.getElementById("menuRequiresRecipe")?.checked ?? true;
+
 const recipeId =
     document.getElementById("menuRecipe").value || null;
 
@@ -824,8 +871,8 @@ const recipeId =
         return;
     }
 
-    if (productType === "standard" && !recipeId) {
-        alert("Please select a recipe for this standard product.");
+    if (productType === "standard" && requiresRecipe && !recipeId) {
+        alert("Please select a recipe for this standard product, or uncheck \"This product needs a recipe\" if it legitimately has none.");
         return;
     }
 
@@ -855,6 +902,15 @@ builder_size:
             productType === "standard"
                 ? recipeId
                 : null,
+        // Builder boxes never have a recipe of their own -- their demand
+        // comes entirely from expanding their child selections in
+        // Production -- so this is always false for them, matching the
+        // requires_recipe migration's own backfill. For a standard
+        // product it reflects the admin's explicit checkbox choice.
+        requires_recipe:
+            productType === "standard"
+                ? requiresRecipe
+                : false,
         packaging_profile_id:
             packagingProfileId,
         recipe_units_used:
