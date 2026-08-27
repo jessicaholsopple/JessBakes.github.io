@@ -1932,7 +1932,11 @@ body.gallery-lightbox-open {
 
 .vacation-section {
   max-width:var(--max-width);
-  margin:0 auto 42px;
+  /* Top margin matches .page-hero's top padding convention, so this
+     reads as intentionally spaced under the navbar when it's the
+     first visible thing in <main> (active Vacation Mode hides the
+     hero above it) -- not just whatever gap happened to be left over. */
+  margin:48px auto 42px;
   padding:32px 26px;
   background:rgba(251,244,236,.92);
   border:1px solid var(--line);
@@ -1961,10 +1965,6 @@ body.gallery-lightbox-open {
 .vacation-ballot-teaser p {
   margin:0 0 12px;
   font-weight:700;
-}
-
-.vacation-menu-link {
-  margin-top:20px;
 }
 
 .vacation-notice {
@@ -2040,10 +2040,19 @@ body.gallery-lightbox-open {
 
 @media (max-width:560px) {
   .vacation-section {
+    margin-top:28px;
     padding:24px 18px;
   }
 
   .subscribe-widget {
     max-width:100%;
   }
+}
+
+/* Vacation Mode homepage section-hiding: [hidden] is native, but this
+   makes it win regardless of any other display rule on these classed
+   elements (defense against a future .hero{display:flex}-style rule
+   creeping in with equal/higher specificity than the UA default). */
+.js-vacation-hide[hidden] {
+  display: none !important;
 }

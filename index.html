@@ -26,6 +26,14 @@
 
     <a href="#main-content" class="skip-link">Skip to content</a>
 
+    <!-- Vacation Mode status determines whether the sections below
+         marked .js-vacation-hide show or stay hidden -- they start
+         hidden to avoid ever flashing the normal homepage before that
+         check resolves (js/vacation-homepage.js). If JavaScript is
+         unavailable, always show the normal homepage rather than a
+         permanently blank one. -->
+    <noscript><style>.js-vacation-hide{display:block!important;}#vacationSection{display:none!important;}</style></noscript>
+
 <header class="site-header">
   <nav class="navbar">
     <a class="logo-link" href="index.html" aria-label="Jess Bakes Sourdough Home">
@@ -49,7 +57,7 @@
 
 <main id="main-content">
 
-  <section class="hero">
+  <section class="hero js-vacation-hide" hidden>
     <div class="hero-banner">
     <img src="images/hero-banner.png" alt="A row of Jess Bakes Sourdough's fresh-baked goods: a blueberry sweet roll, chocolate chip cookie, sourdough boules, a tomato-topped sourdough round, a sea salt cookie, and a cinnamon roll.">
     </div>
@@ -145,14 +153,12 @@
     </div>
 
     <div id="vacationSubscribeMount"></div>
-
-    <a href="menu.html" class="outline-btn vacation-menu-link">See the Menu</a>
   </section>
 
 
-<div class="divider">✦</div>
+<div class="divider js-vacation-hide" hidden>✦</div>
 
-  <section class="section">
+  <section id="currentFavoritesSection" class="section js-vacation-hide" hidden>
     <div class="section-heading">
       <p class="eyebrow">This Week's Bakes</p>
       <h2>Current favorites</h2>
@@ -201,7 +207,7 @@
     <div id="ballotContainer"></div>
 </section>
 
-  <section class="suggestion-section">
+  <section class="suggestion-section js-vacation-hide" hidden>
 
     <div class="section-heading">
 
@@ -263,7 +269,7 @@
 
 </section>
 
-<section class="community-favorites">
+<section class="community-favorites js-vacation-hide" hidden>
 
     <div class="section-heading">
 
@@ -298,7 +304,7 @@
 
 </section>
   
-  <section class="section">
+  <section id="promoSection" class="section js-vacation-hide" hidden>
     <article class="story-card">
       <p class="eyebrow">Jess Bakes Sourdough</p>
       <h2>Rustic baking for every occassion.</h2>

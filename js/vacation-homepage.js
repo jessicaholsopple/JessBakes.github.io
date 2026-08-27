@@ -9,27 +9,67 @@
    class="ballot-section"> elsewhere on this same page) -- it only
    shows a small teaser + anchor link down to it when an active ballot
    exists, per "do not create a second ballot system."
+
+   Also controls which of the normal marketing sections (hero,
+   "Stay Updated," Current Favorites, the suggestion form, Community
+   Favorites, the closing promo section -- everything tagged
+   `.js-vacation-hide` in index.html) are visible: they start `hidden`
+   directly in the HTML so neither the normal homepage nor the
+   vacation homepage ever flashes the wrong one while this status
+   check is in flight. If this script never resolves for any reason
+   (a bug, a blocked/failed script load that still let this far,
+   an unexpected hang), a short watchdog timeout reveals the normal
+   homepage rather than leaving it blank forever -- see
+   index.html's <noscript> block for the JS-disabled case, which this
+   doesn't cover.
    ========================================== */
+
+const VACATION_HOMEPAGE_WATCHDOG_MS = 4000;
 
 document.addEventListener("DOMContentLoaded", () => {
     initVacationHomepageSection();
 });
 
-async function initVacationHomepageSection() {
-    const section = document.getElementById("vacationSection");
-    if (!section) {
-        return;
-    }
+let vacationHomepageResolved = false;
 
+function showNormalHomepage() {
+    document.querySelectorAll(".js-vacation-hide").forEach(el => {
+        el.hidden = false;
+    });
+    const section = document.getElementById("vacationSection");
+    if (section) {
+        section.hidden = true;
+    }
+}
+
+async function initVacationHomepageSection() {
+    // Failsafe: if something goes wrong and this never finishes, show
+    // the normal homepage rather than leaving the marketing sections
+    // hidden indefinitely.
+    const watchdog = setTimeout(() => {
+        if (!vacationHomepageResolved) {
+            console.error("Vacation Mode status check did not resolve in time -- showing the normal homepage.");
+            showNormalHomepage();
+        }
+    }, VACATION_HOMEPAGE_WATCHDOG_MS);
+
+    const section = document.getElementById("vacationSection");
     const vacation = await fetchActiveVacationStatus();
 
+    vacationHomepageResolved = true;
+    clearTimeout(watchdog);
+
     if (!VacationMode.isVacationActive(vacation)) {
-        section.hidden = true;
+        showNormalHomepage();
         return;
     }
 
+    // Active: marketing sections stay hidden (their default state);
+    // reveal only the vacation section.
     renderVacationHomepageSection(vacation);
-    section.hidden = false;
+    if (section) {
+        section.hidden = false;
+    }
 
     const hasActiveBallot = await checkActiveBallotExists();
     toggleVacationBallotTeaser(hasActiveBallot);
