@@ -15,21 +15,10 @@
 //                                     already-`sent` one.
 import { getAdminClient, isServiceRoleOrAdmin } from "../_shared/supabaseAdmin.ts";
 import { corsHeaders, handlePreflight } from "../_shared/cors.ts";
-import { buildVacationReopeningMenuItems, weeklyMenuSkipReason, buildMenuSnapshotKey } from "../_shared/menu.mjs";
+import { buildVacationReopeningMenuCategories, weeklyMenuSkipReason, buildMenuSnapshotKey } from "../_shared/menu.mjs";
 import { vacationReopeningEmail } from "../_shared/templates.mjs";
 import { processOutboxRow } from "../_shared/processOutbox.ts";
 import { buildAndSendVacationCampaign } from "../_shared/vacationCampaign.ts";
-
-function formatBakeryDateTime(iso: string | null | undefined): string {
-    if (!iso) return "";
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return "";
-    return new Intl.DateTimeFormat("en-US", {
-        timeZone: "Europe/Berlin",
-        weekday: "long", month: "long", day: "numeric", year: "numeric",
-        hour: "numeric", minute: "2-digit"
-    }).format(date);
-}
 
 async function loadSettings(adminClient: any) {
     const { data } = await adminClient.from("email_settings").select("*").limit(1).maybeSingle();
@@ -86,15 +75,13 @@ Deno.serve(async (req) => {
 
     if (action === "preview") {
         const menuRows = await loadLiveMenuRows(adminClient);
-        const items = buildVacationReopeningMenuItems(menuRows);
-        const skipReason = weeklyMenuSkipReason(items);
+        const categories = buildVacationReopeningMenuCategories(menuRows);
+        const skipReason = weeklyMenuSkipReason(categories);
         const menuSnapshotKey = buildMenuSnapshotKey(menuRows);
 
         const rendered = vacationReopeningEmail({
-            introMessage: cycle.email_intro || "We're back from vacation and ordering is now open!",
-            closingMessage: cycle.email_closing || "",
-            pickupLabel: formatBakeryDateTime(cycle.next_pickup_at) || "Soon -- check the Menu for details.",
-            items,
+            additionalMessage: cycle.email_intro || "",
+            categories,
             unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=preview"
         });
 

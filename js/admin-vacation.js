@@ -6,20 +6,31 @@
    js/admin-settings.js's existing (working) pickup-location logic --
    purely additive to that file's page.
 
-   Edge Function contract this file calls (see Phase 5 --
+   Edge Function contract this file calls (see
    supabase/functions/vacation-campaign, vacation-resume):
      - "vacation-campaign" (admin-gated): {action:"preview"|"test"|"retry", cycleId}
      - "vacation-resume"   (admin-gated): {cycleId, sendEmail}
-   Both are 404 until Phase 5 ships -- the UI here degrades to a
-   generic "Something went wrong" message via the same error handling
-   every other admin page in this codebase already uses for a failed
-   supabaseClient.functions.invoke() call.
+
+   Preview/Send Test ALWAYS persist the current form fields first
+   (persistReopeningEmailDraft()) before invoking the Edge Function --
+   this is the fix for a real bug: previously they rendered/sent
+   whatever was last SAVED in the database, silently ignoring anything
+   typed into the form but not yet saved via a separate "Save
+   Reopening Email" click. Now what you see in Preview (and what a
+   Test Email delivers) always matches exactly what's currently in
+   the form, with no separate save step required first.
    ========================================== */
 
 let vacationCurrentCycle = null;
 let vacationAvailableMenuItems = [];
 let vacationEligibleRecipientCount = 0;
 let vacationResumeRequestInFlight = false;
+let vacationPreviewInFlight = false;
+let vacationTestSendInFlight = false;
+let vacationSaveDetailsInFlight = false;
+let vacationSaveEmailInFlight = false;
+let vacationRetryInFlight = false;
+let vacationStartInFlight = false;
 
 document.addEventListener("DOMContentLoaded", async () => {
     await requireAuth();
@@ -55,6 +66,56 @@ function showVacationMessage(text, kind) {
 }
 
 /* ==========================================
+   INLINE ACTION FEEDBACK (beside/underneath a button --
+   the distant page-level banner above is secondary at most)
+   ========================================== */
+
+/** Returns a small controller for one button+feedback-element pair:
+ *  .start() disables the button, swaps its label, shows a loading
+ *  pill; .success()/.error() restore the button and show a result
+ *  pill in place, persisting until the next action (not auto-hidden,
+ *  so it stays readable as long as the admin needs). Disabling the
+ *  button synchronously at the start of the click handler IS the
+ *  double-click guard -- a disabled element cannot dispatch another
+ *  click -- reinforced by the in-flight boolean flags at call sites
+ *  for defense in depth. */
+function withButtonFeedback(buttonId, feedbackId, busyLabel) {
+    const button = document.getElementById(buttonId);
+    const idleLabel = button ? button.textContent : "";
+
+    return {
+        start() {
+            if (button) {
+                button.disabled = true;
+                button.textContent = busyLabel;
+            }
+            setActionFeedback(feedbackId, "loading", "Working…");
+        },
+        success(message) {
+            if (button) {
+                button.disabled = false;
+                button.textContent = idleLabel;
+            }
+            setActionFeedback(feedbackId, "success", message);
+        },
+        error(message) {
+            if (button) {
+                button.disabled = false;
+                button.textContent = idleLabel;
+            }
+            setActionFeedback(feedbackId, "error", message);
+        }
+    };
+}
+
+function setActionFeedback(feedbackId, kind, text) {
+    const el = document.getElementById(feedbackId);
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = `vacation-action-feedback${text ? ` is-${kind}` : ""}`;
+}
+
+/* ==========================================
    LOAD
    ========================================== */
 
@@ -76,7 +137,7 @@ async function loadVacationPanel() {
 
     const { data: menuItems, error: menuError } = await supabaseClient
         .from("menu_items")
-        .select("id, name, price, description, product_type, available")
+        .select("id, name, price, description, product_type, available, category, sort_order")
         .eq("available", true);
 
     if (menuError) {
@@ -142,29 +203,33 @@ async function renderVacationNotActiveView() {
 }
 
 async function startVacation() {
-    const button = document.getElementById("vacationStartBtn");
+    if (vacationStartInFlight) return;
+    vacationStartInFlight = true;
+
+    const feedback = withButtonFeedback("vacationStartBtn", "vacationStartFeedback", "Starting…");
+    feedback.start();
+
     const heading = (document.getElementById("vacationStartHeading")?.value || "").trim() || "We're on a baking break!";
     const message = (document.getElementById("vacationStartMessage")?.value || "").trim();
     const reopenAt = toIsoOrNull(document.getElementById("vacationStartReopenAt")?.value);
     const pickupAt = toIsoOrNull(document.getElementById("vacationStartPickupAt")?.value);
 
-    if (button) button.disabled = true;
-    showVacationMessage("Starting Vacation Mode...", "loading");
+    try {
+        const { error } = await supabaseClient.from("vacation_periods").insert({
+            heading, message: message || null, reopen_at: reopenAt, next_pickup_at: pickupAt
+        });
 
-    const { error } = await supabaseClient.from("vacation_periods").insert({
-        heading, message: message || null, reopen_at: reopenAt, next_pickup_at: pickupAt
-    });
+        if (error) {
+            console.error(error);
+            feedback.error("Couldn't start Vacation Mode. Please try again.");
+            return;
+        }
 
-    if (button) button.disabled = false;
-
-    if (error) {
-        console.error(error);
-        showVacationMessage("Couldn't start Vacation Mode. Please try again.", "error");
-        return;
+        feedback.success("Vacation Mode is now active. Ordering is paused.");
+        await loadVacationPanel();
+    } finally {
+        vacationStartInFlight = false;
     }
-
-    showVacationMessage("Vacation Mode is now active. Ordering is paused.", "success");
-    await loadVacationPanel();
 }
 
 /* ==========================================
@@ -189,8 +254,7 @@ async function renderVacationActiveView() {
     setChecked("vacationEmailEnabledToggle", cycle.reopening_email_enabled !== false);
     setValue("vacationEmailSubject", cycle.email_subject || "");
     setValue("vacationEmailPreviewText", cycle.email_preview_text || "");
-    setValue("vacationEmailIntro", cycle.email_intro || "");
-    setValue("vacationEmailClosing", cycle.email_closing || "");
+    setValue("vacationAdditionalMessage", cycle.email_intro || "");
     setChecked("vacationRecipientsReopening", cycle.recipients_reopening_alerts !== false);
     setChecked("vacationRecipientsMenu", cycle.recipients_menu_announcements !== false);
     setChecked("vacationRecipientsGeneral", cycle.recipients_general_updates === true);
@@ -202,67 +266,94 @@ async function renderVacationActiveView() {
 }
 
 async function saveVacationDetails() {
-    const button = document.getElementById("vacationSaveDetailsBtn");
+    if (vacationSaveDetailsInFlight) return;
+    vacationSaveDetailsInFlight = true;
+
+    const feedback = withButtonFeedback("vacationSaveDetailsBtn", "vacationSaveDetailsFeedback", "Saving…");
+    feedback.start();
+
     const heading = (document.getElementById("vacationHeadingInput")?.value || "").trim() || "We're on a baking break!";
     const message = (document.getElementById("vacationMessageInput")?.value || "").trim();
     const reopenAt = toIsoOrNull(document.getElementById("vacationReopenAtInput")?.value);
     const pickupAt = toIsoOrNull(document.getElementById("vacationPickupAtInput")?.value);
 
-    if (button) button.disabled = true;
-    showVacationMessage("Saving...", "loading");
+    try {
+        const { error } = await supabaseClient
+            .from("vacation_periods")
+            .update({ heading, message: message || null, reopen_at: reopenAt, next_pickup_at: pickupAt })
+            .eq("id", vacationCurrentCycle.id);
 
-    const { error } = await supabaseClient
-        .from("vacation_periods")
-        .update({ heading, message: message || null, reopen_at: reopenAt, next_pickup_at: pickupAt })
-        .eq("id", vacationCurrentCycle.id);
+        if (error) {
+            console.error(error);
+            feedback.error("Couldn't save. Please try again.");
+            return;
+        }
 
-    if (button) button.disabled = false;
-
-    if (error) {
-        console.error(error);
-        showVacationMessage("Couldn't save vacation details. Please try again.", "error");
-        return;
+        feedback.success("Vacation details saved.");
+        await loadVacationPanel();
+    } finally {
+        vacationSaveDetailsInFlight = false;
     }
-
-    showVacationMessage("Vacation details saved.", "success");
-    await loadVacationPanel();
 }
 
+/** Reads the Reopening Email form. `email_intro` is the DB column
+ *  behind the single "Additional message" field (renamed in the UI,
+ *  column kept as-is -- see 20260827180000's migration comment).
+ *  There is no more separate "closing text" field to read. */
 function readReopeningEmailForm() {
     return {
         reopening_email_enabled: document.getElementById("vacationEmailEnabledToggle")?.checked === true,
         email_subject: (document.getElementById("vacationEmailSubject")?.value || "").trim(),
         email_preview_text: (document.getElementById("vacationEmailPreviewText")?.value || "").trim() || null,
-        email_intro: (document.getElementById("vacationEmailIntro")?.value || "").trim() || null,
-        email_closing: (document.getElementById("vacationEmailClosing")?.value || "").trim() || null,
+        email_intro: (document.getElementById("vacationAdditionalMessage")?.value || "").trim() || null,
         recipients_reopening_alerts: document.getElementById("vacationRecipientsReopening")?.checked === true,
         recipients_menu_announcements: document.getElementById("vacationRecipientsMenu")?.checked === true,
         recipients_general_updates: document.getElementById("vacationRecipientsGeneral")?.checked === true
     };
 }
 
-async function saveReopeningEmailDraft() {
-    const button = document.getElementById("vacationSaveEmailBtn");
+/** The actual persistence, shared by the explicit "Save Reopening
+ *  Email" button AND by Preview/Send Test (which now always save
+ *  first, so what's rendered/sent can never silently drift from
+ *  what's in the form). Updates the in-memory vacationCurrentCycle on
+ *  success so readiness/preview-staleness checks stay consistent
+ *  without needing a full panel reload. */
+async function persistReopeningEmailDraft() {
     const payload = readReopeningEmailForm();
-
-    if (button) button.disabled = true;
-    showVacationMessage("Saving...", "loading");
-
     const { error } = await supabaseClient
         .from("vacation_periods")
         .update(payload)
         .eq("id", vacationCurrentCycle.id);
 
-    if (button) button.disabled = false;
-
-    if (error) {
-        console.error(error);
-        showVacationMessage("Couldn't save the reopening email. Please try again.", "error");
-        return;
+    if (!error) {
+        Object.assign(vacationCurrentCycle, payload);
     }
 
-    showVacationMessage("Reopening email saved.", "success");
-    await loadVacationPanel();
+    return { error };
+}
+
+async function saveReopeningEmailDraft() {
+    if (vacationSaveEmailInFlight) return;
+    vacationSaveEmailInFlight = true;
+
+    const feedback = withButtonFeedback("vacationSaveEmailBtn", "vacationSaveEmailFeedback", "Saving…");
+    feedback.start();
+
+    try {
+        const { error } = await persistReopeningEmailDraft();
+
+        if (error) {
+            console.error(error);
+            feedback.error("Couldn't save. Please try again.");
+            return;
+        }
+
+        feedback.success("Reopening email saved.");
+        await refreshVacationEligibleCount();
+        renderVacationReadiness();
+    } finally {
+        vacationSaveEmailInFlight = false;
+    }
 }
 
 /* ==========================================
@@ -304,7 +395,6 @@ function renderVacationReadiness() {
     const readiness = VacationMode.computeReadiness({
         reopeningEmailEnabled: form.reopening_email_enabled,
         subject: form.email_subject,
-        pickupAt: vacationCurrentCycle.next_pickup_at,
         previewMenuSnapshotKey: vacationCurrentCycle.preview_menu_snapshot_key,
         currentMenuSnapshotKey,
         availableMenuCount: vacationAvailableMenuItems.length,
@@ -338,85 +428,110 @@ function renderVacationReadiness() {
 }
 
 /* ==========================================
-   PREVIEW / TEST / RETRY (Phase 5 Edge Functions)
+   PREVIEW / TEST / RETRY
    ========================================== */
 
 async function previewVacationEmail() {
-    const button = document.getElementById("vacationPreviewBtn");
-    if (button) button.disabled = true;
-    showVacationMessage("Generating preview...", "loading");
+    if (vacationPreviewInFlight) return;
+    vacationPreviewInFlight = true;
 
-    const { data, error } = await supabaseClient.functions.invoke("vacation-campaign", {
-        body: { action: "preview", cycleId: vacationCurrentCycle.id }
-    });
+    const feedback = withButtonFeedback("vacationPreviewBtn", "vacationPreviewFeedback", "Generating Preview…");
+    feedback.start();
 
-    if (button) button.disabled = false;
+    try {
+        const { error: saveError } = await persistReopeningEmailDraft();
+        if (saveError) {
+            console.error(saveError);
+            feedback.error("Couldn't save your changes before previewing. Please try again.");
+            return;
+        }
 
-    if (error || !data?.ok) {
-        console.error(error || data);
-        showVacationMessage("Couldn't generate a preview. Please try again.", "error");
-        return;
+        const { data, error } = await supabaseClient.functions.invoke("vacation-campaign", {
+            body: { action: "preview", cycleId: vacationCurrentCycle.id }
+        });
+
+        if (error || !data?.ok) {
+            console.error(error || data);
+            feedback.error("Couldn't generate a preview. Please try again.");
+            return;
+        }
+
+        const frame = document.getElementById("vacationPreviewFrame");
+        if (frame) {
+            frame.srcdoc = data.html;
+            frame.style.display = "block";
+        }
+
+        if (data.menuSnapshotKey) {
+            vacationCurrentCycle.preview_menu_snapshot_key = data.menuSnapshotKey;
+            vacationCurrentCycle.preview_generated_at = new Date().toISOString();
+        }
+
+        feedback.success("Preview generated from the current published menu and your saved draft.");
+        renderVacationReadiness();
+    } finally {
+        vacationPreviewInFlight = false;
     }
-
-    const frame = document.getElementById("vacationPreviewFrame");
-    if (frame) {
-        frame.srcdoc = data.html;
-        frame.style.display = "block";
-    }
-
-    if (data.menuSnapshotKey) {
-        vacationCurrentCycle.preview_menu_snapshot_key = data.menuSnapshotKey;
-        vacationCurrentCycle.preview_generated_at = new Date().toISOString();
-    }
-
-    showVacationMessage("Preview generated from the current published menu.", "success");
-    renderVacationReadiness();
 }
 
 async function sendVacationTestEmail() {
-    const button = document.getElementById("vacationSendTestBtn");
-    if (button) button.disabled = true;
-    showVacationMessage("Sending test email...", "loading");
+    if (vacationTestSendInFlight) return;
+    vacationTestSendInFlight = true;
 
-    const { data, error } = await supabaseClient.functions.invoke("vacation-campaign", {
-        body: { action: "test", cycleId: vacationCurrentCycle.id }
-    });
+    const feedback = withButtonFeedback("vacationSendTestBtn", "vacationSendTestFeedback", "Sending Test Email…");
+    feedback.start();
 
-    if (button) button.disabled = false;
+    try {
+        const { error: saveError } = await persistReopeningEmailDraft();
+        if (saveError) {
+            console.error(saveError);
+            feedback.error("Couldn't save your changes before sending. Please try again.");
+            return;
+        }
 
-    if (error || !data?.ok) {
-        console.error(error || data);
-        showVacationMessage(
-            data?.reason === "missing_test_recipient"
-                ? "Set a test recipient email on the Email page first."
-                : "Couldn't send the test email. Please try again.",
-            "error"
-        );
-        return;
+        const { data, error } = await supabaseClient.functions.invoke("vacation-campaign", {
+            body: { action: "test", cycleId: vacationCurrentCycle.id }
+        });
+
+        if (error || !data?.ok) {
+            console.error(error || data);
+            feedback.error(
+                data?.reason === "missing_test_recipient"
+                    ? "Set a test recipient email on the Email page first."
+                    : "Couldn't send the test email. Please try again."
+            );
+            return;
+        }
+
+        feedback.success(`Test email sent successfully to ${data.testRecipient}.`);
+    } finally {
+        vacationTestSendInFlight = false;
     }
-
-    showVacationMessage(`Test email sent to ${data.testRecipient}.`, "success");
 }
 
 async function retryVacationEmail() {
-    const button = document.getElementById("vacationRetryEmailBtn");
-    if (button) button.disabled = true;
-    showVacationMessage("Retrying...", "loading");
+    if (vacationRetryInFlight) return;
+    vacationRetryInFlight = true;
 
-    const { data, error } = await supabaseClient.functions.invoke("vacation-campaign", {
-        body: { action: "retry", cycleId: vacationCurrentCycle.id }
-    });
+    const feedback = withButtonFeedback("vacationRetryEmailBtn", "vacationRetryFeedback", "Retrying…");
+    feedback.start();
 
-    if (button) button.disabled = false;
+    try {
+        const { data, error } = await supabaseClient.functions.invoke("vacation-campaign", {
+            body: { action: "retry", cycleId: vacationCurrentCycle.id }
+        });
 
-    if (error || !data?.ok) {
-        console.error(error || data);
-        showVacationMessage("Retry failed. Please try again.", "error");
-        return;
+        if (error || !data?.ok) {
+            console.error(error || data);
+            feedback.error("Retry failed. Please try again.");
+            return;
+        }
+
+        feedback.success(`Retry complete: ${data.sent || 0} sent, ${data.failed || 0} failed.`);
+        await loadVacationPanel();
+    } finally {
+        vacationRetryInFlight = false;
     }
-
-    showVacationMessage(`Retry complete: ${data.sent || 0} sent, ${data.failed || 0} failed.`, "success");
-    await loadVacationPanel();
 }
 
 /* ==========================================

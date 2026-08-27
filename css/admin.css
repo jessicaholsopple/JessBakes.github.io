@@ -4353,3 +4353,77 @@ html {
     max-width: 100%;
     overflow-x: auto;
 }
+
+/* ===========================
+   VACATION MODE admin: inline action feedback
+   (beside/underneath a button, not just the distant page banner)
+=========================== */
+
+.vacation-action-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.vacation-action-feedback {
+    display: none;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: .82rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+}
+
+.vacation-action-feedback.is-loading {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--background);
+    color: var(--text);
+}
+
+.vacation-action-feedback.is-loading::before {
+    content: "";
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    animation: vacation-spin .7s linear infinite;
+}
+
+.vacation-action-feedback.is-success {
+    display: inline-block;
+    background: #eaf6ec;
+    border-color: #bfe3c4;
+    color: #1e6b2e;
+}
+
+.vacation-action-feedback.is-error {
+    display: inline-block;
+    background: #fdecea;
+    border-color: #f3c2bd;
+    color: #a12a1f;
+}
+
+@keyframes vacation-spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (max-width: 560px) {
+    .vacation-action-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .vacation-action-feedback {
+        margin-top: 4px;
+    }
+}
+
+.field-hint {
+    margin: 6px 0 0;
+    font-size: .82rem;
+    color: #777;
+}

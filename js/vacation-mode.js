@@ -145,13 +145,17 @@
      * render the admin's readiness badge/reasons list and to decide
      * whether the "Automatically send..." toggle may be turned on.
      * Every reason string is written to be shown directly to the admin.
+     *
+     * Deliberately does NOT check the pickup date -- the reopening
+     * email never mentions pickup at all (reopening date and pickup
+     * date are separate concepts), and the reopening SCHEDULE itself
+     * is governed by `reopen_at` elsewhere (vacation-scheduler only
+     * fires once that has passed), not by this readiness gate.
      */
     function computeReadiness(input) {
         const {
             reopeningEmailEnabled,
             subject,
-            pickupAt,
-            nowMs,
             previewMenuSnapshotKey,
             currentMenuSnapshotKey,
             availableMenuCount,
@@ -159,7 +163,6 @@
         } = input || {};
 
         const reasons = [];
-        const now = typeof nowMs === "number" ? nowMs : Date.now();
 
         if (!reopeningEmailEnabled) {
             reasons.push("Reopening email is turned off for this vacation.");
@@ -167,11 +170,6 @@
 
         if (!isNonEmptyString(subject)) {
             reasons.push("Email subject is required.");
-        }
-
-        const pickupMs = pickupAt ? new Date(pickupAt).getTime() : NaN;
-        if (!Number.isFinite(pickupMs) || pickupMs <= now) {
-            reasons.push("Set a future pickup date and time.");
         }
 
         if (toNumber(availableMenuCount, 0) < 1) {

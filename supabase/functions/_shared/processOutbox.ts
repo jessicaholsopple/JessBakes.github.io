@@ -11,7 +11,7 @@ import { sendViaResend } from "./resend.ts";
 import { orderReceivedEmail, orderConfirmedEmail, orderCancelledEmail, newsletterWelcomeEmail, weeklyMenuEmail, vacationReopeningEmail, adminNewOrderEmail } from "./templates.mjs";
 import { resolveSendRecipient, isPermanentFailure, nextOutboxState } from "./retry.mjs";
 import { generateUnsubscribeToken, hashToken, buildUnsubscribeUrl } from "./token.mjs";
-import { buildVacationReopeningMenuItems } from "./menu.mjs";
+import { buildVacationReopeningMenuCategories } from "./menu.mjs";
 
 const SITE_URL = "https://jessbakessourdough.com";
 const ORDERS_FROM = "Jess Bakes Sourdough <orders@jessbakessourdough.com>";
@@ -24,22 +24,6 @@ function sanitizeError(message: string | undefined): string {
 
 function shortOrderRef(orderId: string): string {
     return String(orderId).replace(/-/g, "").slice(0, 8);
-}
-
-/** Mirrors js/vacation-mode.js's formatBakeryDateTime -- same
- * Europe/Berlin timezone (one physical pickup location, not the
- * recipient's device timezone), same output shape. Kept as a small
- * local helper rather than a shared module since nothing else in the
- * Deno functions needs it yet. */
-function formatBakeryDateTime(iso: string | null | undefined): string {
-    if (!iso) return "";
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return "";
-    return new Intl.DateTimeFormat("en-US", {
-        timeZone: "Europe/Berlin",
-        weekday: "long", month: "long", day: "numeric", year: "numeric",
-        hour: "numeric", minute: "2-digit"
-    }).format(date);
 }
 
 async function mintUnsubscribeLink(adminClient: any, subscriberId: string) {
@@ -196,23 +180,24 @@ async function renderForRow(adminClient: any, row: any) {
 
     if (row.email_type === "vacation_reopening") {
         let cycle: any = null;
-        let menuItems: any[] = [];
+        let categories: any[] = [];
 
         if (row.campaign_id) {
             // The normal path: a real campaign already exists (created
             // by resumeOrdering+buildAndSendVacationCampaign), so the
-            // menu is the exact snapshot taken at that moment.
+            // menu is the exact categorized snapshot taken at that
+            // moment.
             const { data: campaign } = await adminClient
                 .from("email_campaigns")
                 .select("id, menu_snapshot")
                 .eq("id", row.campaign_id)
                 .maybeSingle();
             if (!campaign) return null;
-            menuItems = campaign.menu_snapshot || [];
+            categories = campaign.menu_snapshot || [];
 
             const { data: cycleByCampaign } = await adminClient
                 .from("vacation_periods")
-                .select("email_subject, email_intro, email_closing, next_pickup_at")
+                .select("email_subject, email_intro")
                 .eq("campaign_id", row.campaign_id)
                 .maybeSingle();
             if (!cycleByCampaign) return null;
@@ -224,7 +209,7 @@ async function renderForRow(adminClient: any, row: any) {
             // to reuse yet).
             const { data: activeCycle } = await adminClient
                 .from("vacation_periods")
-                .select("email_subject, email_intro, email_closing, next_pickup_at")
+                .select("email_subject, email_intro")
                 .eq("status", "active")
                 .limit(1)
                 .maybeSingle();
@@ -234,7 +219,7 @@ async function renderForRow(adminClient: any, row: any) {
             const { data: menuRows } = await adminClient
                 .from("menu_items")
                 .select("id, name, description, price, available, product_type");
-            menuItems = buildVacationReopeningMenuItems(menuRows || []);
+            categories = buildVacationReopeningMenuCategories(menuRows || []);
         }
 
         let unsubscribeUrl = `${SITE_URL}/unsubscribe.html`;
@@ -242,13 +227,9 @@ async function renderForRow(adminClient: any, row: any) {
             unsubscribeUrl = await mintUnsubscribeLink(adminClient, row.recipient_ref_id);
         }
 
-        const pickupLabel = formatBakeryDateTime(cycle.next_pickup_at) || "Soon -- check the Menu for details.";
-
         const rendered = vacationReopeningEmail({
-            introMessage: cycle.email_intro || "We're back from vacation and ordering is now open!",
-            closingMessage: cycle.email_closing || "",
-            pickupLabel,
-            items: menuItems,
+            additionalMessage: cycle.email_intro || "",
+            categories,
             unsubscribeUrl
         });
 

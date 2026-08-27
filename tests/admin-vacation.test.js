@@ -26,7 +26,7 @@ function read(relPath) {
     return fs.readFileSync(path.join(ROOT, relPath), "utf8");
 }
 
-function makeQueryBuilder(table, resolveQuery, callLog) {
+function makeQueryBuilder(table, resolveQuery, callLog, timeline) {
     const state = { table };
     const builder = {
         select(fields) { state.select = fields; return builder; },
@@ -38,24 +38,26 @@ function makeQueryBuilder(table, resolveQuery, callLog) {
         maybeSingle() {
             state.op = state.op || "maybeSingle";
             callLog.push({ ...state });
+            if (timeline) timeline.push({ type: "query", table, op: state.op, payload: state.payload });
             return Promise.resolve(resolveQuery(state));
         },
         then(onFulfilled, onRejected) {
             state.op = state.op || "select";
             callLog.push({ ...state });
+            if (timeline) timeline.push({ type: "query", table, op: state.op, payload: state.payload });
             return Promise.resolve(resolveQuery(state)).then(onFulfilled, onRejected);
         }
     };
     return builder;
 }
 
-function makeSupabaseClient(resolveQuery, resolveRpc, resolveInvoke) {
+function makeSupabaseClient(resolveQuery, resolveRpc, resolveInvoke, timeline) {
     const callLog = [];
     const rpcCalls = [];
     const invokeCalls = [];
     return {
-        callLog, rpcCalls, invokeCalls,
-        from(table) { return makeQueryBuilder(table, resolveQuery, callLog); },
+        callLog, rpcCalls, invokeCalls, timeline,
+        from(table) { return makeQueryBuilder(table, resolveQuery, callLog, timeline); },
         rpc(name, params) {
             rpcCalls.push({ name, params });
             return Promise.resolve(resolveRpc(name, params));
@@ -63,6 +65,7 @@ function makeSupabaseClient(resolveQuery, resolveRpc, resolveInvoke) {
         functions: {
             invoke(name, opts) {
                 invokeCalls.push({ name, opts });
+                if (timeline) timeline.push({ type: "invoke", name, body: opts?.body });
                 return Promise.resolve(resolveInvoke(name, opts));
             }
         }
@@ -74,17 +77,19 @@ function loadAdminVacationSandbox({ resolveQuery, resolveRpc, resolveInvoke }) {
     function fakeElement(id) {
         if (!elements.has(id)) {
             elements.set(id, {
-                id, value: "", textContent: "", innerHTML: "", checked: false, disabled: false, style: {}
+                id, value: "", textContent: "", innerHTML: "", checked: false, disabled: false, style: {}, className: ""
             });
         }
         return elements.get(id);
     }
 
     const alertCalls = [];
+    const timeline = [];
     const supabaseClient = makeSupabaseClient(
         resolveQuery || (() => ({ data: null, error: null })),
         resolveRpc || (() => ({ data: [], error: null })),
-        resolveInvoke || (() => ({ data: { ok: true }, error: null }))
+        resolveInvoke || (() => ({ data: { ok: true }, error: null })),
+        timeline
     );
 
     const fakeDocument = {
@@ -110,6 +115,8 @@ function loadAdminVacationSandbox({ resolveQuery, resolveRpc, resolveInvoke }) {
         this.__startVacation = startVacation;
         this.__saveVacationDetails = saveVacationDetails;
         this.__saveReopeningEmailDraft = saveReopeningEmailDraft;
+        this.__previewVacationEmail = previewVacationEmail;
+        this.__sendVacationTestEmail = sendVacationTestEmail;
         this.__renderVacationReadiness = renderVacationReadiness;
         this.__openResumeReviewPanel = openResumeReviewPanel;
         this.__confirmResumeWithEmail = confirmResumeWithEmail;
@@ -121,7 +128,7 @@ function loadAdminVacationSandbox({ resolveQuery, resolveRpc, resolveInvoke }) {
 
     vm.runInContext(source, sandbox);
 
-    return { sandbox, elements, supabaseClient, alertCalls };
+    return { sandbox, elements, supabaseClient, alertCalls, timeline };
 }
 
 const ACTIVE_CYCLE = {
@@ -136,7 +143,6 @@ const ACTIVE_CYCLE = {
     email_subject: "We're back!",
     email_preview_text: null,
     email_intro: null,
-    email_closing: null,
     recipients_reopening_alerts: true,
     recipients_menu_announcements: true,
     recipients_general_updates: false,
@@ -225,6 +231,16 @@ test("3. saveVacationDetails updates the active cycle's heading/message/dates on
     assert.equal(updatePayload.message, "Updated message");
     // Never touches the reopening-email draft fields.
     assert.equal("email_subject" in updatePayload, false);
+});
+
+test("3b. renderVacationActiveView populates the single Additional Message field from email_intro (no separate closing-text field exists anymore)", async () => {
+    const { sandbox, elements } = loadAdminVacationSandbox({
+        resolveQuery: resolverForActiveCycle({ email_intro: "See you soon!" })
+    });
+
+    await sandbox.__loadVacationPanel();
+
+    assert.equal(elements.get("vacationAdditionalMessage").value, "See you soon!");
 });
 
 test("4. the live eligible-recipient-count RPC is called with the active cycle's id", async () => {
@@ -378,4 +394,136 @@ test("11. resuming with email reports ordering and email results independently -
     const result = elements.get("vacationResumeResult").textContent;
     assert.match(result, /Ordering resumed/);
     assert.match(result, /failed to queue/i);
+});
+
+/* ==========================================
+   Preview / Send Test: the root-cause fix -- both must save the
+   CURRENT form fields before rendering/sending, never operate on
+   stale/unsaved DB state.
+   ========================================== */
+
+test("12. previewVacationEmail saves the current (possibly unsaved) form fields BEFORE invoking the preview action", async () => {
+    const { sandbox, elements, timeline } = loadAdminVacationSandbox({
+        resolveQuery: resolverForActiveCycle(),
+        resolveInvoke: (name) => name === "vacation-campaign"
+            ? { data: { ok: true, html: "<p>preview</p>", text: "preview", menuSnapshotKey: "abc" }, error: null }
+            : { data: { ok: true }, error: null }
+    });
+    await sandbox.__loadVacationPanel();
+    elements.set("vacationAdditionalMessage", { value: "Brand new unsaved text" });
+    elements.set("vacationEmailSubject", { value: "We're back!" });
+
+    await sandbox.__previewVacationEmail();
+
+    const updateEvents = timeline.filter(e => e.type === "query" && e.table === "vacation_periods" && e.op === "update");
+    const invokeEvents = timeline.filter(e => e.type === "invoke" && e.name === "vacation-campaign");
+
+    assert.equal(updateEvents.length, 1);
+    assert.equal(updateEvents[0].payload.email_intro, "Brand new unsaved text");
+    assert.equal(invokeEvents.length, 1);
+    // The save must happen strictly before the render/send call.
+    assert.ok(timeline.indexOf(updateEvents[0]) < timeline.indexOf(invokeEvents[0]));
+});
+
+test("13. sendVacationTestEmail also saves current form fields before invoking the test action -- this is the exact bug that dropped the admin's Introduction/Closing text before", async () => {
+    const { sandbox, elements, timeline } = loadAdminVacationSandbox({
+        resolveQuery: resolverForActiveCycle(),
+        resolveInvoke: (name) => name === "vacation-campaign"
+            ? { data: { ok: true, testRecipient: "owner@example.com" }, error: null }
+            : { data: { ok: true }, error: null }
+    });
+    await sandbox.__loadVacationPanel();
+    elements.set("vacationAdditionalMessage", { value: "Unsaved additional message" });
+
+    await sandbox.__sendVacationTestEmail();
+
+    const updateEvents = timeline.filter(e => e.type === "query" && e.table === "vacation_periods" && e.op === "update");
+    const invokeEvents = timeline.filter(e => e.type === "invoke" && e.name === "vacation-campaign");
+
+    assert.equal(updateEvents.length, 1);
+    assert.equal(updateEvents[0].payload.email_intro, "Unsaved additional message");
+    assert.ok(timeline.indexOf(updateEvents[0]) < timeline.indexOf(invokeEvents[0]));
+});
+
+test("14. Preview button: loading state disables + relabels the button, then success restores it and shows an inline pill beside it", async () => {
+    const { sandbox, elements } = loadAdminVacationSandbox({
+        resolveQuery: resolverForActiveCycle(),
+        resolveInvoke: () => ({ data: { ok: true, html: "<p>x</p>", text: "x", menuSnapshotKey: "abc" }, error: null })
+    });
+    await sandbox.__loadVacationPanel();
+    elements.set("vacationPreviewBtn", { textContent: "Preview Email", disabled: false });
+
+    const promise = sandbox.__previewVacationEmail();
+    // Immediately after calling (before the microtask queue drains),
+    // the button must already be in its busy state.
+    assert.equal(elements.get("vacationPreviewBtn").disabled, true);
+    assert.match(elements.get("vacationPreviewBtn").textContent, /Generating Preview/);
+
+    await promise;
+
+    assert.equal(elements.get("vacationPreviewBtn").disabled, false);
+    assert.equal(elements.get("vacationPreviewBtn").textContent, "Preview Email");
+    assert.match(elements.get("vacationPreviewFeedback").textContent, /generated/i);
+    assert.match(elements.get("vacationPreviewFeedback").className, /is-success/);
+});
+
+test("15. Send Test button: success feedback reads 'Test email sent successfully to <address>' beside the button, and the button recovers", async () => {
+    const { sandbox, elements } = loadAdminVacationSandbox({
+        resolveQuery: resolverForActiveCycle(),
+        resolveInvoke: () => ({ data: { ok: true, testRecipient: "owner@example.com" }, error: null })
+    });
+    await sandbox.__loadVacationPanel();
+    elements.set("vacationSendTestBtn", { textContent: "Send Test Email", disabled: false });
+
+    await sandbox.__sendVacationTestEmail();
+
+    assert.equal(elements.get("vacationSendTestBtn").disabled, false);
+    assert.equal(elements.get("vacationSendTestBtn").textContent, "Send Test Email");
+    assert.match(elements.get("vacationSendTestFeedback").textContent, /Test email sent successfully to owner@example\.com/);
+    assert.match(elements.get("vacationSendTestFeedback").className, /is-success/);
+});
+
+test("16. Send Test button: failure shows a red inline error beside the button and restores it (never stuck disabled)", async () => {
+    const { sandbox, elements } = loadAdminVacationSandbox({
+        resolveQuery: resolverForActiveCycle(),
+        resolveInvoke: () => ({ data: { ok: false, reason: "missing_test_recipient" }, error: null })
+    });
+    await sandbox.__loadVacationPanel();
+    elements.set("vacationSendTestBtn", { textContent: "Send Test Email", disabled: false });
+
+    await sandbox.__sendVacationTestEmail();
+
+    assert.equal(elements.get("vacationSendTestBtn").disabled, false);
+    assert.match(elements.get("vacationSendTestFeedback").textContent, /test recipient/i);
+    assert.match(elements.get("vacationSendTestFeedback").className, /is-error/);
+});
+
+test("17. a second Send Test click while one is already in flight does not fire a second request (duplicate-send protection)", async () => {
+    let resolveInvokePromise;
+    const pending = new Promise((resolve) => { resolveInvokePromise = resolve; });
+
+    const { sandbox, supabaseClient } = loadAdminVacationSandbox({
+        resolveQuery: resolverForActiveCycle(),
+        resolveInvoke: (name) => name === "vacation-campaign" ? pending : { data: { ok: true }, error: null }
+    });
+    await sandbox.__loadVacationPanel();
+
+    const first = sandbox.__sendVacationTestEmail();
+    const second = sandbox.__sendVacationTestEmail();
+
+    resolveInvokePromise({ data: { ok: true, testRecipient: "owner@example.com" }, error: null });
+    await Promise.all([first, second]);
+
+    const testInvokes = supabaseClient.invokeCalls.filter(c => c.name === "vacation-campaign" && c.opts.body.action === "test");
+    assert.equal(testInvokes.length, 1, "the second concurrent click must not fire a second test send");
+});
+
+test("18. reloading the page (a fresh sandbox load) never re-sends a test email on its own -- Send Test only ever runs on an explicit click", async () => {
+    const { sandbox, supabaseClient } = loadAdminVacationSandbox({
+        resolveQuery: resolverForActiveCycle()
+    });
+
+    await sandbox.__loadVacationPanel();
+
+    assert.equal(supabaseClient.invokeCalls.length, 0, "loading the panel must never itself trigger a send");
 });

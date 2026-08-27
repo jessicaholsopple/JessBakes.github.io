@@ -344,29 +344,68 @@ test("menu: buildMenuSnapshotKey (server) is byte-for-byte identical to Vacation
     }
 });
 
-test("menu: buildVacationReopeningMenuItems includes productType and excludes unavailable/archived items", async () => {
+test("menu: buildVacationReopeningMenuCategories groups by category, in the canonical bread/cookie/dessert/seasonal order, alphabetized within each", async () => {
     const m = await import(SHARED + "menu.mjs");
     const rows = [
-        { name: "Sourdough Boule", available: true, category: "bread", sort_order: 1, price: "9.00", description: "Classic", product_type: "standard" },
-        { name: "6 or 12 Cookie Box", available: true, category: "cookie", sort_order: 1, price: "15.00", product_type: "builder" },
-        { name: "Archived Item", available: false, category: "bread", sort_order: 2, price: "5.00", product_type: "standard" }
+        { name: "S'mores", available: true, category: "cookie", product_type: "standard" },
+        { name: "Brown Butter Sea Salt Chocolate Chip", available: true, category: "cookie", product_type: "standard" },
+        { name: "Strawberry Shortcake", available: true, category: "cookie", product_type: "standard" },
+        { name: "Sea Salt Fudge Brownie", available: true, category: "dessert", product_type: "standard" },
+        { name: "Cinnamon Rolls", available: true, category: "dessert", product_type: "standard" },
+        { name: "Classic Boule", available: true, category: "bread", product_type: "standard" },
+        { name: "Archived Item", available: false, category: "bread", product_type: "standard" }
     ];
-    const items = m.buildVacationReopeningMenuItems(rows);
-    assert.equal(items.length, 2);
-    assert.ok(items.every(i => i.name !== "Archived Item"));
-    const box = items.find(i => i.name === "6 or 12 Cookie Box");
-    assert.equal(box.productType, "builder");
-    assert.equal(box.priceEur, 15);
-    const loaf = items.find(i => i.name === "Sourdough Boule");
-    assert.equal(loaf.productType, "standard");
+
+    const categories = m.buildVacationReopeningMenuCategories(rows);
+
+    assert.equal(categories.length, 3);
+    assert.deepEqual(categories.map(c => c.categoryLabel), ["Sourdough Bread", "Sourdough Cookies", "Desserts"]);
+
+    const bread = categories.find(c => c.categoryLabel === "Sourdough Bread");
+    assert.deepEqual(bread.items.map(i => i.name), ["Classic Boule"]);
+
+    const cookies = categories.find(c => c.categoryLabel === "Sourdough Cookies");
+    assert.deepEqual(cookies.items.map(i => i.name), [
+        "Brown Butter Sea Salt Chocolate Chip", "S'mores", "Strawberry Shortcake"
+    ]);
+
+    const desserts = categories.find(c => c.categoryLabel === "Desserts");
+    assert.deepEqual(desserts.items.map(i => i.name), ["Cinnamon Rolls", "Sea Salt Fudge Brownie"]);
 });
 
-test("menu: weeklyMenuSkipReason applies identically to a vacation-reopening item list (shared, not weekly-specific logic)", async () => {
+test("menu: buildVacationReopeningMenuCategories excludes unavailable/archived items entirely (never an empty category)", async () => {
     const m = await import(SHARED + "menu.mjs");
-    assert.equal(m.weeklyMenuSkipReason(m.buildVacationReopeningMenuItems([])), "empty_menu");
+    const categories = m.buildVacationReopeningMenuCategories([
+        { name: "Archived Item", available: false, category: "bread", product_type: "standard" }
+    ]);
+    assert.deepEqual(categories, []);
+});
+
+test("menu: buildVacationReopeningMenuCategories includes a future/unknown category automatically, sorted after the known ones", async () => {
+    const m = await import(SHARED + "menu.mjs");
+    const categories = m.buildVacationReopeningMenuCategories([
+        { name: "Sourdough Boule", available: true, category: "bread", product_type: "standard" },
+        { name: "Mystery Muffin", available: true, category: "pastry", product_type: "standard" }
+    ]);
+    assert.equal(categories.length, 2);
+    assert.equal(categories[0].categoryLabel, "Sourdough Bread");
+    assert.equal(categories[1].categoryLabel, "Pastry");
+});
+
+test("menu: buildVacationReopeningMenuCategories tags builder products with productType, for the 'choose your flavors' note", async () => {
+    const m = await import(SHARED + "menu.mjs");
+    const categories = m.buildVacationReopeningMenuCategories([
+        { name: "6 or 12 Cookie Box", available: true, category: "cookie", product_type: "builder" }
+    ]);
+    assert.equal(categories[0].items[0].productType, "builder");
+});
+
+test("menu: weeklyMenuSkipReason applies identically to a vacation-reopening category list (shared, not weekly-specific logic)", async () => {
+    const m = await import(SHARED + "menu.mjs");
+    assert.equal(m.weeklyMenuSkipReason(m.buildVacationReopeningMenuCategories([])), "empty_menu");
     assert.equal(
-        m.weeklyMenuSkipReason(m.buildVacationReopeningMenuItems([
-            { name: "x", available: true, category: "bread", sort_order: 1, price: "1", product_type: "standard" }
+        m.weeklyMenuSkipReason(m.buildVacationReopeningMenuCategories([
+            { name: "x", available: true, category: "bread", product_type: "standard" }
         ])),
         null
     );
@@ -532,45 +571,86 @@ test("templates: weeklyMenuEmail lists only the given items with EUR prices, a M
     assert.match(result.html, /unsubscribe\.html\?t=abc/);
 });
 
-test("templates: vacationReopeningEmail includes the intro, exact pickup date, a Menu button, and an unsubscribe link", async () => {
+test("templates: vacationReopeningEmail always includes the standard reopening sentence, the additional message below it, categorized menu, a Menu button, and an unsubscribe link -- never any pickup wording", async () => {
     const t = await import(SHARED + "templates.mjs");
     const result = t.vacationReopeningEmail({
-        introMessage: "We're back from vacation and ordering is now open!",
-        closingMessage: "Thanks for your patience while we were away.",
-        pickupLabel: "Sunday, September 14 at 12:30 PM",
-        items: [
-            { name: "Sourdough Boule", description: "Classic", priceEur: 9, productType: "standard" },
-            { name: "6 or 12 Cookie Mix & Match Box", priceEur: 15, productType: "builder" }
+        additionalMessage: "Thanks for your patience while we were away.",
+        categories: [
+            { categoryLabel: "Sourdough Bread", items: [{ name: "Classic Boule", productType: "standard" }] },
+            { categoryLabel: "Sourdough Cookies", items: [{ name: "6 or 12 Cookie Mix & Match Box", productType: "builder" }] }
         ],
         unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=abc"
     });
 
-    assert.match(result.html, /back from vacation and ordering is now open/);
-    assert.match(result.html, /Sunday, September 14 at 12:30 PM/);
-    assert.match(result.html, /Sourdough Boule/);
-    assert.match(result.html, /€9\.00/);
-    assert.match(result.html, /€15\.00/);
+    assert.match(result.html, /We're back from vacation and ordering is now open!/);
+    assert.match(result.html, /Thanks for your patience/);
+    assert.match(result.html, /Sourdough Bread/);
+    assert.match(result.html, /Classic Boule/);
+    assert.match(result.html, /Sourdough Cookies/);
     assert.match(result.html, /menu\.html/);
     assert.match(result.html, /View Menu/);
     assert.match(result.html, /unsubscribe\.html\?t=abc/);
-    assert.match(result.html, /Thanks for your patience/);
-    assert.match(result.text, /Sunday, September 14 at 12:30 PM/);
+    assert.match(result.text, /We're back from vacation and ordering is now open!/);
+    assert.match(result.text, /Thanks for your patience/);
     assert.match(result.text, /unsubscribe\.html\?t=abc/);
+
+    // Pickup wording must never appear in either version, in any form.
+    for (const content of [result.html, result.text]) {
+        assert.doesNotMatch(content, /next pickup/i);
+        assert.doesNotMatch(content, /pickup date/i);
+        assert.doesNotMatch(content, /check the menu for details/i);
+    }
+});
+
+test("templates: vacationReopeningEmail shows the standard sentence even when there is no additional message, and omits the additional-message block entirely rather than showing an empty one", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.vacationReopeningEmail({
+        additionalMessage: "",
+        categories: [{ categoryLabel: "Sourdough Bread", items: [{ name: "Classic Boule", productType: "standard" }] }],
+        unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=abc"
+    });
+
+    assert.match(result.html, /We're back from vacation and ordering is now open!/);
+    assert.doesNotMatch(result.html, /<p style="margin:0 0 14px 0;"><\/p>/);
+});
+
+test("templates: vacationReopeningEmail preserves paragraph breaks in the additional message but strips any HTML/script injection attempt", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.vacationReopeningEmail({
+        additionalMessage: "First paragraph.\n\nSecond paragraph.<script>alert(1)</script>",
+        categories: [{ categoryLabel: "Sourdough Bread", items: [{ name: "Classic Boule", productType: "standard" }] }],
+        unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=abc"
+    });
+
+    assert.match(result.html, /First paragraph\./);
+    assert.match(result.html, /Second paragraph\./);
+    // Two distinct <p> blocks, not one blob with the newline lost.
+    assert.equal((result.html.match(/<p style="margin:0 0 14px 0;">/g) || []).length, 2);
+    assert.doesNotMatch(result.html, /<script>/);
+    assert.match(result.html, /&lt;script&gt;/);
+});
+
+test("templates: vacationReopeningEmail category headings render distinctly from item names (heading markup vs plain row)", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.vacationReopeningEmail({
+        additionalMessage: "",
+        categories: [{ categoryLabel: "Sourdough Cookies", items: [{ name: "S'mores", productType: "standard" }] }],
+        unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=abc"
+    });
+
+    assert.match(result.html, /<h2[^>]*>Sourdough Cookies<\/h2>/);
+    assert.doesNotMatch(result.html, /<h2[^>]*>S&#039;mores<\/h2>/);
 });
 
 test("templates: vacationReopeningEmail summarizes a Mix & Match box as one line -- never enumerates every flavor", async () => {
     const t = await import(SHARED + "templates.mjs");
     const result = t.vacationReopeningEmail({
-        introMessage: "We're back!",
-        closingMessage: "",
-        pickupLabel: "Sunday, September 14",
-        items: [
-            { name: "6 or 12 Cookie Mix & Match Box", priceEur: 15, productType: "builder" }
-        ],
+        additionalMessage: "",
+        categories: [{ categoryLabel: "Sourdough Cookies", items: [{ name: "6 or 12 Cookie Mix & Match Box", productType: "builder" }] }],
         unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=abc"
     });
 
-    assert.match(result.html, /Choose your own flavors on the Menu/);
+    assert.match(result.html, /choose your own flavors on the Menu/i);
     // No per-flavor names ever appear -- this template is only ever
     // given the box product itself, never its eligible-cookie list.
     assert.doesNotMatch(result.html, /Chocolate Chip/);
@@ -665,10 +745,8 @@ test("templates: every template escapes HTML in user-supplied fields (no injecti
     assert.match(owner.html, /&lt;img/);
 
     const vacation = t.vacationReopeningEmail({
-        introMessage: '"><script>evil()</script>',
-        closingMessage: '<img src=x onerror=alert(1)>',
-        pickupLabel: "2026-09-14",
-        items: [{ name: '<img src=x onerror=alert(1)>', description: '<script>evil()</script>', priceEur: 3.5, productType: "standard" }],
+        additionalMessage: '"><script>evil()</script>',
+        categories: [{ categoryLabel: '<img src=x onerror=alert(1)>', items: [{ name: '<img src=x onerror=alert(1)>', productType: "standard" }] }],
         unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=abc"
     });
     assert.doesNotMatch(vacation.html, /<img src=x onerror/);

@@ -239,8 +239,6 @@ test("14. describeRecipientCategories lists only the enabled categories, in a st
 const READY_BASE = {
     reopeningEmailEnabled: true,
     subject: "We're back!",
-    pickupAt: "2026-09-10T15:00:00.000Z",
-    nowMs: Date.parse("2026-09-01T00:00:00.000Z"),
     previewMenuSnapshotKey: "abc",
     currentMenuSnapshotKey: "abc",
     availableMenuCount: 3,
@@ -265,14 +263,13 @@ test("17. computeReadiness: blank subject blocks readiness", () => {
     assert.ok(result.reasons.some(r => /subject/i.test(r)));
 });
 
-test("18. computeReadiness: missing or past pickup date blocks readiness", () => {
-    const missing = VacationMode.computeReadiness({ ...READY_BASE, pickupAt: null });
-    assert.equal(missing.ready, false);
-    assert.ok(missing.reasons.some(r => /pickup date/i.test(r)));
-
-    const past = VacationMode.computeReadiness({ ...READY_BASE, pickupAt: "2026-08-01T00:00:00.000Z" });
-    assert.equal(past.ready, false);
-    assert.ok(past.reasons.some(r => /pickup date/i.test(r)));
+test("18. computeReadiness: a missing or past pickup date never blocks readiness -- reopening date and pickup date are separate concepts, and this field isn't even part of the input anymore", () => {
+    // No pickupAt/nowMs field exists in the input shape at all now --
+    // this just proves READY_BASE (which never sets one) is Ready,
+    // regression-guarding against ever reintroducing that check.
+    const result = VacationMode.computeReadiness(READY_BASE);
+    assert.equal(result.ready, true);
+    assert.ok(!result.reasons.some(r => /pickup/i.test(r)));
 });
 
 test("19. computeReadiness: no available menu items blocks readiness", () => {

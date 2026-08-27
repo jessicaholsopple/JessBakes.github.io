@@ -3,7 +3,7 @@
 // (vacation-scheduler/index.ts) -- kept in exactly one place so the
 // idempotency/eligibility/menu-snapshot guarantees can never drift
 // between the two call sites.
-import { buildVacationReopeningMenuItems, weeklyMenuSkipReason, buildMenuSnapshotKey } from "./menu.mjs";
+import { buildVacationReopeningMenuCategories, weeklyMenuSkipReason, buildMenuSnapshotKey } from "./menu.mjs";
 import { vacationReopeningCampaignKey, vacationReopeningRecipientKey } from "./idempotency.mjs";
 import { processOutboxRow } from "./processOutbox.ts";
 
@@ -91,8 +91,8 @@ export async function buildAndSendVacationCampaign(adminClient: any, cycleId: st
         .from("menu_items")
         .select("id, name, description, price, available, product_type");
 
-    const items = menuError ? null : buildVacationReopeningMenuItems(menuRows || []);
-    const skipReason = weeklyMenuSkipReason(items);
+    const categories = menuError ? null : buildVacationReopeningMenuCategories(menuRows || []);
+    const skipReason = weeklyMenuSkipReason(categories);
     if (skipReason) {
         return { ok: false, skipped: true, reason: skipReason };
     }
@@ -130,7 +130,7 @@ export async function buildAndSendVacationCampaign(adminClient: any, cycleId: st
                 scheduled_for: new Date().toISOString(),
                 started_at: new Date().toISOString(),
                 recipient_count: recipients.length,
-                menu_snapshot: items
+                menu_snapshot: categories
             })
             .select()
             .single();

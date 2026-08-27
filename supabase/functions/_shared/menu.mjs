@@ -65,27 +65,78 @@ export function buildMenuSnapshotKey(menuItemsRows) {
     return JSON.stringify(rows);
 }
 
-/** Same filter/sort as buildWeeklyMenuItems, plus `productType` so
- * the vacation-reopening template can summarize Mix & Match boxes as
- * one line instead of enumerating every flavor (see
- * vacationReopeningEmail in templates.mjs). Only ever reads live
+/** Canonical customer-facing category labels and deliberate display
+ * order -- copied from js/menu.js's own MENU_CATEGORY_NAMES so the
+ * reopening email groups/orders categories exactly like the public
+ * Menu page does. Duplicated (not imported) for the same reason
+ * buildMenuSnapshotKey is duplicated above: no build step shares one
+ * implementation between the browser script and this Deno module. A
+ * category not in this map still gets included automatically --
+ * see categoryLabel() below -- it just sorts after the known ones,
+ * alphabetically by its generated label. */
+const VACATION_MENU_CATEGORY_LABELS = {
+    bread: "Sourdough Bread",
+    cookie: "Sourdough Cookies",
+    dessert: "Desserts",
+    seasonal: "Seasonal Specials"
+};
+
+const VACATION_MENU_CATEGORY_ORDER = Object.keys(VACATION_MENU_CATEGORY_LABELS);
+
+function categoryLabel(category) {
+    if (VACATION_MENU_CATEGORY_LABELS[category]) {
+        return VACATION_MENU_CATEGORY_LABELS[category];
+    }
+    const raw = String(category || "").trim();
+    if (!raw) {
+        return "Other";
+    }
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+/**
+ * Groups the live, available menu into the shape
+ * vacationReopeningEmail() renders: an array of
+ * `{ categoryLabel, items: [{ name, productType }] }`, categories in
+ * the canonical bread/cookie/dessert/seasonal order (any unrecognized
+ * category sorts after those, alphabetically by its own label), items
+ * alphabetized by name within each category. Only ever reads live
  * `menu_items` -- archived/unavailable/unpublished products, and
  * ballot options that were never actually published as a menu item,
- * are excluded by construction, never by a special case here. */
-export function buildVacationReopeningMenuItems(menuItemsRows) {
-    const rows = Array.isArray(menuItemsRows) ? menuItemsRows : [];
+ * are excluded by construction (the `available === true` filter),
+ * never by a special case here. No description or price is included
+ * -- the reopening email is a simple, scannable name list, not a
+ * priced menu (customers place the actual order on the Menu page).
+ */
+export function buildVacationReopeningMenuCategories(menuItemsRows) {
+    const rows = (Array.isArray(menuItemsRows) ? menuItemsRows : [])
+        .filter(row => row && row.available === true);
 
-    return rows
-        .filter(row => row && row.available === true)
-        .sort((a, b) => {
-            const cat = String(a.category || "").localeCompare(String(b.category || ""));
-            if (cat !== 0) return cat;
-            return (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0);
-        })
-        .map(row => ({
+    const byCategory = new Map();
+    for (const row of rows) {
+        const key = row.category || "";
+        if (!byCategory.has(key)) {
+            byCategory.set(key, []);
+        }
+        byCategory.get(key).push({
             name: row.name,
-            description: row.description || "",
-            priceEur: Number(row.price) || 0,
             productType: row.product_type || "standard"
-        }));
+        });
+    }
+
+    const categoryKeys = Array.from(byCategory.keys()).sort((a, b) => {
+        const ai = VACATION_MENU_CATEGORY_ORDER.indexOf(a);
+        const bi = VACATION_MENU_CATEGORY_ORDER.indexOf(b);
+        if (ai !== -1 && bi !== -1) return ai - bi;
+        if (ai !== -1) return -1;
+        if (bi !== -1) return 1;
+        return categoryLabel(a).localeCompare(categoryLabel(b));
+    });
+
+    return categoryKeys.map(key => ({
+        categoryLabel: categoryLabel(key),
+        items: byCategory.get(key)
+            .slice()
+            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+    }));
 }

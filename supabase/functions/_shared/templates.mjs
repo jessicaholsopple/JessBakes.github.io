@@ -40,6 +40,22 @@ function eur(amount) {
     return `€${n.toFixed(2)}`;
 }
 
+/** Escapes then converts admin-authored freeform text into safe
+ * paragraph/line-break HTML -- blank lines become paragraph breaks,
+ * single newlines become <br>. No tag other than <p>/<br> is ever
+ * produced, so arbitrary HTML/script injection is impossible
+ * regardless of what an admin types. Returns "" for empty input. */
+function escParagraphs(text) {
+    const value = String(text ?? "").trim();
+    if (!value) {
+        return "";
+    }
+    return value
+        .split(/\n{2,}/)
+        .map(para => `<p style="margin:0 0 14px 0;">${esc(para).replaceAll("\n", "<br>")}</p>`)
+        .join("");
+}
+
 /** Shared HTML shell: logo header, a body slot, and a standard
  * identity footer. `footerLinks` is an array of {label, url}; pass
  * an extra one for "Unsubscribe" only on newsletter-type emails. */
@@ -361,60 +377,69 @@ ${textFooter([
    Sent once per vacation cycle (see vacationReopeningCampaignKey),
    built from whatever the admin drafted PLUS a fresh, live read of
    the published menu at send time -- never a menu snapshot captured
-   when Vacation Mode was first turned on. Mix & Match/builder
-   products are summarized as a single line (name, price, a note to
-   choose flavors on the Menu) rather than expanding into every
-   possible flavor -- the same "don't enumerate every flavor" design
-   already used by every other customer-facing template in this file.
+   when Vacation Mode was first turned on.
+
+   Fixed content order (never reordered by input): branding -> heading
+   -> standard reopening sentence (always shown, never replaced by
+   admin text) -> optional admin "Additional message" -> categorized,
+   alphabetized menu -> one "View Menu & Order" button -> footer/
+   unsubscribe. Deliberately carries NO pickup-date field of any kind
+   -- reopening date and pickup date are separate concepts, and this
+   email only ever announces that ordering has reopened.
+
+   `categories` is the pre-grouped/sorted shape from
+   buildVacationReopeningMenuCategories() in menu.mjs:
+   [{ categoryLabel, items: [{ name, productType }] }]. Mix & Match/
+   builder products get a short inline note instead of ever expanding
+   into every possible flavor -- the same "don't enumerate every
+   flavor" design already used by every other customer-facing
+   template in this file.
    ============================ */
-export function vacationReopeningEmail({ introMessage, closingMessage, pickupLabel, items, unsubscribeUrl }) {
-    const rows = (items || []).map(i => {
-        const note = i.productType === "builder"
-            ? `<div style="color:${MUTED};font-size:14px;margin-top:2px;">Choose your own flavors on the Menu.</div>`
-            : (i.description ? `<div style="color:${MUTED};font-size:14px;margin-top:2px;">${esc(i.description)}</div>` : "");
-        return `
-<tr>
-  <td style="padding:10px 0;border-bottom:1px solid #f1e7da;vertical-align:top;">
-    <strong>${esc(i.name)}</strong>
-    ${note}
-  </td>
-  <td style="padding:10px 0;border-bottom:1px solid #f1e7da;text-align:right;white-space:nowrap;vertical-align:top;">${eur(i.priceEur)}</td>
-</tr>`;
-    }).join("");
+export function vacationReopeningEmail({ additionalMessage, categories, unsubscribeUrl }) {
+    const builderNote = "(choose your own flavors on the Menu)";
 
-    const textRows = (items || []).map(i => {
-        const note = i.productType === "builder" ? "choose your own flavors on the Menu" : i.description;
-        return `  - ${i.name}${note ? " — " + note : ""} (${eur(i.priceEur)})`;
-    }).join("\n");
+    const categoryBlocksHtml = (categories || []).map(cat => `
+<tr><td style="padding:18px 0 6px 0;">
+  <h2 style="margin:0;font-size:17px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${BURGUNDY};">${esc(cat.categoryLabel)}</h2>
+</td></tr>
+${(cat.items || []).map(item => `
+<tr><td style="padding:5px 0 5px 4px;font-size:14px;border-bottom:1px solid #f1e7da;">
+  ${esc(item.name)}${item.productType === "builder" ? ` <span style="color:${MUTED};font-size:12px;">${builderNote}</span>` : ""}
+</td></tr>`).join("")}`).join("");
 
-    const closingHtml = closingMessage ? `<p style="margin:20px 0 0 0;">${esc(closingMessage)}</p>` : "";
-    const closingText = closingMessage ? `\n${closingMessage}\n` : "";
+    const categoryBlocksText = (categories || []).map(cat =>
+        `${String(cat.categoryLabel || "").toUpperCase()}\n` +
+        (cat.items || []).map(item =>
+            `  - ${item.name}${item.productType === "builder" ? " " + builderNote : ""}`
+        ).join("\n")
+    ).join("\n\n");
+
+    const additionalHtml = escParagraphs(additionalMessage);
+    const trimmedAdditional = String(additionalMessage ?? "").trim();
+    const additionalText = trimmedAdditional ? `\n${trimmedAdditional}\n` : "";
 
     const bodyHtml = `
 <h1 style="font-size:20px;margin:0 0 12px 0;">Jess Bakes is back!</h1>
-<p style="margin:0 0 8px 0;">${esc(introMessage)}</p>
-<p style="margin:0 0 20px 0;"><strong>Next pickup:</strong> ${esc(pickupLabel)}</p>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;">
-${rows}
+<p style="margin:0 0 8px 0;">We're back from vacation and ordering is now open!</p>
+${additionalHtml}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0 20px 0;">
+${categoryBlocksHtml}
 </table>
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
 <tr><td style="background:${BURGUNDY};border-radius:8px;">
 <a href="${SITE_URL}/menu.html" style="display:inline-block;padding:12px 28px;color:#ffffff;text-decoration:none;font-weight:bold;">View Menu &amp; Order</a>
 </td></tr>
 </table>
-${closingHtml}
 `;
 
     const text = `Jess Bakes is back!
 
-${introMessage}
-
-Next pickup: ${pickupLabel}
-
-${textRows}
+We're back from vacation and ordering is now open!
+${additionalText}
+${categoryBlocksText}
 
 View the menu and order: ${SITE_URL}/menu.html
-${closingText}${textFooter([
+${textFooter([
         "Menu: " + SITE_URL + "/menu.html",
         "Gallery: " + SITE_URL + "/gallery.html",
         "Contact: " + SITE_URL + "/contact.html",
@@ -425,7 +450,7 @@ ${closingText}${textFooter([
     return {
         subject: null, // caller supplies the admin-configured subject line
         html: emailShell({
-            preheader: introMessage,
+            preheader: "We're back from vacation and ordering is now open!",
             bodyHtml,
             footerLinks: [
                 { label: "Menu", url: `${SITE_URL}/menu.html` },
