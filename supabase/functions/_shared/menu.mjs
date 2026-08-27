@@ -58,7 +58,8 @@ export function buildMenuSnapshotKey(menuItemsRows) {
             name: item.name || "",
             price: Number(item.price) || 0,
             description: item.description || "",
-            product_type: item.product_type || "standard"
+            product_type: item.product_type || "standard",
+            builder_size: item.builder_size == null ? null : Number(item.builder_size)
         }))
         .sort((a, b) => a.id.localeCompare(b.id));
 
@@ -137,11 +138,17 @@ function assertMenuRowsHaveCategoryField(rows) {
  * Groups the live, available menu into the shape
  * vacationReopeningEmail() renders: `{ categories, warnings }`.
  *
- * `categories` is `[{ categoryLabel, items: [{ name, productType }] }]`,
+ * `categories` is `[{ categoryLabel, items: [{ name, productType, builderSize }] }]`,
  * in the canonical bread/cookie/dessert/seasonal order (any
  * legitimately-new category value sorts after those, alphabetically
- * by its generated label), items alphabetized case-insensitively
- * within each category. A final "Other" category is included ONLY
+ * by its generated label). WITHIN each category, regular (non-builder)
+ * products sort alphabetically first, then Mix & Match/builder
+ * products sort last, ordered by their numeric `builder_size` (box
+ * capacity) ascending -- never by name. Both are real, stable
+ * `menu_items` columns already used by the Mix & Match eligibility
+ * system (js/mix-and-match.js) -- never a name/substring/ID guess, so
+ * a future flavor or a future builder size is classified and ordered
+ * correctly automatically. A final "Other" category is included ONLY
  * when at least one product has a genuinely missing category
  * (null/empty) -- a known or legitimately-new category value NEVER
  * lands in Other.
@@ -160,6 +167,16 @@ function assertMenuRowsHaveCategoryField(rows) {
  * simple, scannable name list, not a priced menu (customers place the
  * actual order on the Menu page).
  */
+function sortCategoryItems(items) {
+    const standard = items
+        .filter(item => item.productType !== "builder")
+        .sort((a, b) => localeCompareNames(a.name, b.name));
+    const builders = items
+        .filter(item => item.productType === "builder")
+        .sort((a, b) => (a.builderSize ?? Infinity) - (b.builderSize ?? Infinity));
+    return [...standard, ...builders];
+}
+
 export function buildVacationReopeningMenuCategories(menuItemsRows) {
     const allRows = Array.isArray(menuItemsRows) ? menuItemsRows : [];
     assertMenuRowsHaveCategoryField(allRows);
@@ -182,7 +199,8 @@ export function buildVacationReopeningMenuCategories(menuItemsRows) {
         }
         byCategory.get(key).push({
             name: row.name,
-            productType: row.product_type || "standard"
+            productType: row.product_type || "standard",
+            builderSize: row.builder_size == null ? null : Number(row.builder_size)
         });
     }
 
@@ -197,14 +215,14 @@ export function buildVacationReopeningMenuCategories(menuItemsRows) {
 
     const categories = categoryKeys.map(key => ({
         categoryLabel: categoryLabel(key),
-        items: byCategory.get(key).slice().sort((a, b) => localeCompareNames(a.name, b.name))
+        items: sortCategoryItems(byCategory.get(key))
     }));
 
     // Other is always last, and only appears when it's genuinely non-empty.
     if (byCategory.has(OTHER_LABEL)) {
         categories.push({
             categoryLabel: OTHER_LABEL,
-            items: byCategory.get(OTHER_LABEL).slice().sort((a, b) => localeCompareNames(a.name, b.name))
+            items: sortCategoryItems(byCategory.get(OTHER_LABEL))
         });
     }
 

@@ -260,8 +260,8 @@ test("4. the live eligible-recipient-count RPC is called with the active cycle's
 });
 
 test("5. readiness is Ready once every condition holds (preview matches current menu, recipients > 0, future pickup date)", async () => {
-    const menuItems = [{ id: "1", name: "Sourdough Boule", price: 8, available: true, description: "", product_type: "standard" }];
-    const snapshotKey = JSON.stringify([{ id: "1", name: "Sourdough Boule", price: 8, description: "", product_type: "standard" }]);
+    const menuItems = [{ id: "1", name: "Sourdough Boule", price: 8, available: true, description: "", product_type: "standard", builder_size: null }];
+    const snapshotKey = JSON.stringify([{ id: "1", name: "Sourdough Boule", price: 8, description: "", product_type: "standard", builder_size: null }]);
 
     const { sandbox, elements } = loadAdminVacationSandbox({
         resolveQuery: (state) => {

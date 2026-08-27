@@ -197,7 +197,7 @@ async function renderForRow(adminClient: any, row: any) {
 
             const { data: cycleByCampaign } = await adminClient
                 .from("vacation_periods")
-                .select("email_subject, email_intro")
+                .select("email_subject, email_intro, email_preview_text")
                 .eq("campaign_id", row.campaign_id)
                 .maybeSingle();
             if (!cycleByCampaign) return null;
@@ -209,7 +209,7 @@ async function renderForRow(adminClient: any, row: any) {
             // to reuse yet).
             const { data: activeCycle } = await adminClient
                 .from("vacation_periods")
-                .select("email_subject, email_intro")
+                .select("email_subject, email_intro, email_preview_text")
                 .eq("status", "active")
                 .limit(1)
                 .maybeSingle();
@@ -218,7 +218,7 @@ async function renderForRow(adminClient: any, row: any) {
 
             const { data: menuRows } = await adminClient
                 .from("menu_items")
-                .select("id, name, description, price, available, product_type, category, sort_order");
+                .select("id, name, description, price, available, product_type, category, sort_order, builder_size");
             categories = buildVacationReopeningMenuCategories(menuRows || []).categories;
         }
 
@@ -230,6 +230,7 @@ async function renderForRow(adminClient: any, row: any) {
         const rendered = vacationReopeningEmail({
             additionalMessage: cycle.email_intro || "",
             categories,
+            previewText: cycle.email_preview_text || "",
             unsubscribeUrl
         });
 

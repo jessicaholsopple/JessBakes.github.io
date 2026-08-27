@@ -353,8 +353,8 @@ test("menu: buildVacationReopeningMenuCategories groups by category, in the cano
         { id: "2", name: "S'mores", available: true, category: "cookie", product_type: "standard" },
         { id: "3", name: "Strawberry Shortcake", available: true, category: "cookie", product_type: "standard" },
         { id: "4", name: "Browned Butter Snickerdoodle", available: true, category: "cookie", product_type: "standard" },
-        { id: "5", name: "6 Mix & Match Cookies", available: true, category: "cookie", product_type: "builder" },
-        { id: "6", name: "12 Mix & Match Cookies", available: true, category: "cookie", product_type: "builder" },
+        { id: "5", name: "6 Mix & Match Cookies", available: true, category: "cookie", product_type: "builder", builder_size: 6 },
+        { id: "6", name: "12 Mix & Match Cookies", available: true, category: "cookie", product_type: "builder", builder_size: 12 },
         { id: "7", name: "Classic Cinnamon Rolls", available: true, category: "dessert", product_type: "standard" },
         { id: "8", name: "Classic Sea Salt Fudge Brownie", available: true, category: "dessert", product_type: "standard" },
         { id: "9", name: "Classic Sea Salt Fudge Brownie (Family Pan)", available: true, category: "dessert", product_type: "standard" },
@@ -370,8 +370,8 @@ test("menu: buildVacationReopeningMenuCategories groups by category, in the cano
     const cookies = categories.find(c => c.categoryLabel === "Sourdough Cookies");
     assert.equal(cookies.items.length, 6);
     assert.deepEqual(cookies.items.map(i => i.name), [
-        "12 Mix & Match Cookies", "6 Mix & Match Cookies", "Brown Butter Sea Salt Chocolate Chip",
-        "Browned Butter Snickerdoodle", "S'mores", "Strawberry Shortcake"
+        "Brown Butter Sea Salt Chocolate Chip", "Browned Butter Snickerdoodle", "S'mores", "Strawberry Shortcake",
+        "6 Mix & Match Cookies", "12 Mix & Match Cookies"
     ]);
 
     const desserts = categories.find(c => c.categoryLabel === "Sourdough Desserts");
@@ -727,7 +727,10 @@ test("templates: vacationReopeningEmail uses a simple vertical list -- no <table
     // The menu section itself must not be a <table> -- only the
     // unrelated CTA-button table (an email-client compatibility
     // pattern, not a data grid) that comes after it may still use one.
-    const ctaTableStart = result.html.indexOf('<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">');
+    // Match on the stable role/cellpadding/cellspacing signature only --
+    // not the exact margin value, which is free to change independently.
+    const ctaTableStart = result.html.search(/<table role="presentation" cellpadding="0" cellspacing="0" style="margin:[^"]*">/);
+    assert.ok(ctaTableStart > -1, "expected to find the CTA button table");
     const menuSection = result.html.slice(result.html.indexOf("Sourdough Cookies") - 40, ctaTableStart);
     assert.doesNotMatch(menuSection, /<table/);
 });

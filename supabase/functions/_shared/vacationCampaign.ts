@@ -89,7 +89,7 @@ export async function buildAndSendVacationCampaign(adminClient: any, cycleId: st
     // snapshot from when Vacation Mode was first turned on.
     const { data: menuRows, error: menuError } = await adminClient
         .from("menu_items")
-        .select("id, name, description, price, available, product_type, category, sort_order");
+        .select("id, name, description, price, available, product_type, category, sort_order, builder_size");
 
     if (menuError) {
         return { ok: false, skipped: true, reason: "menu_load_failed" };

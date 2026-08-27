@@ -28,7 +28,7 @@ async function loadSettings(adminClient: any) {
 async function loadLiveMenuRows(adminClient: any) {
     const { data } = await adminClient
         .from("menu_items")
-        .select("id, name, description, price, available, product_type, category, sort_order");
+        .select("id, name, description, price, available, product_type, category, sort_order, builder_size");
     return data || [];
 }
 
@@ -82,6 +82,7 @@ Deno.serve(async (req) => {
         const rendered = vacationReopeningEmail({
             additionalMessage: cycle.email_intro || "",
             categories,
+            previewText: cycle.email_preview_text || "",
             unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=preview"
         });
 

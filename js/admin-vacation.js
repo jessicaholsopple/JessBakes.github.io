@@ -137,7 +137,7 @@ async function loadVacationPanel() {
 
     const { data: menuItems, error: menuError } = await supabaseClient
         .from("menu_items")
-        .select("id, name, price, description, product_type, available, category, sort_order")
+        .select("id, name, price, description, product_type, available, category, sort_order, builder_size")
         .eq("available", true);
 
     if (menuError) {

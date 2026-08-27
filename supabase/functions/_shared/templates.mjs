@@ -5,12 +5,27 @@
    { subject, html, text }. No DB/network access, so every template
    is directly unit-testable with fixture data.
 
-   Email-safe HTML: single-column table layout, inline styles only,
-   no background images, no external stylesheet, system font stack.
-   Uses only the site's existing logo (absolute URL) -- no new or
-   generated graphics. Matches the public site's warm palette
-   (burgundy accent #7a2d1d, cream background, --muted #6E554A, per
-   css/style.css).
+   Email-safe HTML: single-column table layout, inline styles only
+   (plus bgcolor attributes for Outlook, which does not reliably
+   render CSS background-color on tables), no background images, no
+   gradients, system font stack. The canonical brand colors below are
+   copied from css/style.css's own :root custom properties on the
+   live site (not approximated) -- email clients do not resolve CSS
+   variables, so the literal hex values are inlined directly:
+     --background  #D9C2B0  (warm cream/beige/tan -- the logo banner)
+     --surface     #F5E8DC  (light ivory -- the content card)
+     --burgundy    #5E1811  (outer frame, headings, button)
+     --text        #3B2A24  (body copy)
+     --muted       #6E554A  (footer/secondary text)
+     --line        rgba(94,24,17,.15) -- has no reliable email-client
+       equivalent, so SEPARATOR below is that exact color pre-blended
+       to a solid hex over --surface (~#DEC9BE), for compatibility.
+   Uses a cropped, email-safe derivative of the site's logo
+   (jess-bakes-logo-email.png -- the original asset's visible wordmark
+   only fills ~68%x48% of its canvas; this crop removes the excess
+   transparent margin so the wordmark reads large and clear at email
+   sizes) placed on the cream banner, never on burgundy (the original
+   wordmark IS burgundy-colored -- burgundy-on-burgundy was invisible).
 
    Order emails (order_received / order_confirmed / order_cancelled)
    stay strictly transactional -- no unsubscribe link, no newsletter
@@ -19,11 +34,15 @@
    rule: newsletter opt-in is separate from checkout.
    ========================================== */
 
-const BURGUNDY = "#7a2d1d";
-const CREAM = "#FBF3E7";
-const TEXT = "#3B2A20";
+const BURGUNDY = "#5E1811";
+const LOGO_BANNER = "#D9C2B0";
+const CREAM = "#F5E8DC";
+const TEXT = "#3B2A24";
 const MUTED = "#6E554A";
-const LOGO_URL = "https://jessbakessourdough.com/images/jess-bakes-logo.png";
+const SEPARATOR = "#DEC9BE";
+const LOGO_URL = "https://jessbakessourdough.com/images/jess-bakes-logo-email.png";
+const LOGO_WIDTH = 320;
+const LOGO_HEIGHT = 84; // matches the cropped asset's real 682:180 aspect ratio at 320px wide
 const SITE_URL = "https://jessbakessourdough.com";
 
 function esc(value) {
@@ -56,13 +75,39 @@ function escParagraphs(text) {
         .join("");
 }
 
-/** Shared HTML shell: logo header, a body slot, and a standard
- * identity footer. `footerLinks` is an array of {label, url}; pass
- * an extra one for "Unsubscribe" only on newsletter-type emails. */
+/** Sanitizes/normalizes admin-configured preheader text: collapses
+ * any run of whitespace (including accidental newlines) into a
+ * single space and trims. A preheader must be one short line -- this
+ * is what stops "line breaks" or copy/paste artifacts from producing
+ * a garbled inbox snippet. */
+function normalizePreviewText(text) {
+    return String(text ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** Zero-width-joiner + non-breaking-space filler, repeated well past
+ * what any inbox snippet window shows. This is the standard "preheader
+ * padding" trick: a short real preheader alone leaves room for Gmail's
+ * snippet scraper to keep reading past the hidden div and into the
+ * next VISIBLE text (the heading, then the body) -- exactly what
+ * caused the repetitive inbox preview. This filler exhausts that
+ * budget with invisible, meaningless characters instead, so nothing
+ * visible is ever pulled in. aria-hidden keeps it out of screen
+ * readers (it has no meaning to announce). */
+const PREHEADER_PADDING = "&zwnj;&nbsp;".repeat(60);
+
+/** Shared HTML shell: burgundy outer frame -> centered card -> cream
+ * logo banner -> ivory content area -> coordinated footer. Both a
+ * hidden preheader (the actual inbox-preview text, shown exactly
+ * once) and its padding block come immediately after <body>, before
+ * any visible content, per the standard preheader pattern. `footerLinks`
+ * is an array of {label, url}; pass an extra one for "Unsubscribe"
+ * only on newsletter-type emails. */
 function emailShell({ preheader, bodyHtml, footerLinks }) {
     const links = footerLinks
-        .map(l => `<a href="${esc(l.url)}" style="color:${MUTED};text-decoration:underline;">${esc(l.label)}</a>`)
+        .map(l => `<a href="${esc(l.url)}" style="color:${BURGUNDY};text-decoration:underline;">${esc(l.label)}</a>`)
         .join(' &nbsp;•&nbsp; ');
+
+    const preheaderText = normalizePreviewText(preheader);
 
     return `<!doctype html>
 <html lang="en">
@@ -71,18 +116,19 @@ function emailShell({ preheader, bodyHtml, footerLinks }) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Jess Bakes Sourdough</title>
 </head>
-<body style="margin:0;padding:0;background:${CREAM};font-family:Georgia,'Times New Roman',serif;color:${TEXT};">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${esc(preheader || "")}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${CREAM};padding:24px 12px;">
+<body style="margin:0;padding:0;background-color:${BURGUNDY};font-family:Georgia,'Times New Roman',serif;color:${TEXT};">
+<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">${esc(preheaderText)}</div>
+<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;" aria-hidden="true">${PREHEADER_PADDING}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${BURGUNDY}" style="background-color:${BURGUNDY};padding:32px 12px;">
 <tr><td align="center">
-<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;">
-<tr><td style="background:${BURGUNDY};padding:24px;text-align:center;">
-<img src="${LOGO_URL}" alt="Jess Bakes Sourdough" width="120" style="display:inline-block;height:auto;max-width:120px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;border-radius:16px;overflow:hidden;">
+<tr><td bgcolor="${LOGO_BANNER}" style="background-color:${LOGO_BANNER};padding:34px 24px;text-align:center;">
+<img src="${LOGO_URL}" alt="Jess Bakes Sourdough" width="${LOGO_WIDTH}" height="${LOGO_HEIGHT}" style="display:block;margin:0 auto;width:70%;max-width:${LOGO_WIDTH}px;height:auto;">
 </td></tr>
-<tr><td style="padding:28px 28px 8px 28px;font-size:16px;line-height:1.6;">
+<tr><td bgcolor="${CREAM}" style="background-color:${CREAM};padding:32px 28px 12px 28px;font-size:16px;line-height:1.6;">
 ${bodyHtml}
 </td></tr>
-<tr><td style="padding:20px 28px 28px 28px;border-top:1px solid #eee;font-size:12px;line-height:1.7;color:${MUTED};text-align:center;">
+<tr><td bgcolor="${CREAM}" style="background-color:${CREAM};padding:20px 28px 28px 28px;border-top:1px solid ${SEPARATOR};font-size:12px;line-height:1.7;color:${MUTED};text-align:center;">
 <p style="margin:0 0 6px 0;">Jess Bakes Sourdough &nbsp;•&nbsp; <a href="${SITE_URL}/" style="color:${MUTED};">${SITE_URL.replace("https://", "")}</a></p>
 <p style="margin:0;">${links}</p>
 </td></tr>
@@ -389,11 +435,17 @@ ${textFooter([
 
    `categories` is the pre-grouped/sorted shape from
    buildVacationReopeningMenuCategories() in menu.mjs:
-   [{ categoryLabel, items: [{ name, productType }] }]. Only the exact
-   customer-facing product name is ever shown -- no appended
-   instructions for Mix & Match/builder products (the "View Menu &
-   Order" button is the one and only place customers are pointed to
-   configure a box), no description, no price.
+   [{ categoryLabel, items: [{ name, productType, builderSize }] }].
+   Only the exact customer-facing product name is ever shown -- no
+   appended instructions for Mix & Match/builder products (the "View
+   Menu & Order" button is the one and only place customers are
+   pointed to configure a box), no description, no price.
+
+   `previewText` is the admin's own "Inbox Preview Text" -- passed
+   straight through to emailShell() as the ONE hidden preheader, never
+   concatenated with the subject/heading/standard sentence/Additional
+   Message/menu. Falls back to the standard sentence only when the
+   admin hasn't set one, so the hidden preheader is never blank.
 
    Layout is a simple vertical list per category (large burgundy
    title-case heading, then one product per line, a hairline rule
@@ -401,12 +453,12 @@ ${textFooter([
    category cards), so it stays readable in Gmail desktop/mobile,
    Apple Mail, and narrow clients.
    ============================ */
-export function vacationReopeningEmail({ additionalMessage, categories, unsubscribeUrl }) {
+export function vacationReopeningEmail({ additionalMessage, categories, previewText, unsubscribeUrl }) {
     const categoryBlocksHtml = (categories || []).map(cat => `
-<div style="margin:0 0 22px 0;">
-  <h2 style="margin:0 0 8px 0;font-size:19px;font-weight:700;color:${BURGUNDY};">${esc(cat.categoryLabel)}</h2>
+<div style="margin:0 0 26px 0;">
+  <h2 style="margin:0 0 10px 0;font-size:19px;font-weight:700;color:${BURGUNDY};">${esc(cat.categoryLabel)}</h2>
   ${(cat.items || []).map(item => `
-  <div style="padding:6px 0;font-size:15px;border-bottom:1px solid #f1e7da;">${esc(item.name)}</div>`).join("")}
+  <div style="padding:8px 0;font-size:15px;border-bottom:1px solid ${SEPARATOR};">${esc(item.name)}</div>`).join("")}
 </div>`).join("");
 
     const categoryBlocksText = (categories || []).map(cat =>
@@ -419,15 +471,15 @@ export function vacationReopeningEmail({ additionalMessage, categories, unsubscr
     const additionalText = trimmedAdditional ? `\n${trimmedAdditional}\n` : "";
 
     const bodyHtml = `
-<h1 style="font-size:20px;margin:0 0 12px 0;">Jess Bakes is back!</h1>
-<p style="margin:0 0 8px 0;">We're back from vacation and ordering is now open!</p>
+<h1 style="font-size:22px;margin:0 0 16px 0;color:${BURGUNDY};">Jess Bakes is back!</h1>
+<p style="margin:0 0 20px 0;">We're back from vacation and ordering is now open!</p>
 ${additionalHtml}
-<div style="margin:16px 0 20px 0;">
+<div style="margin:24px 0 28px 0;">
 ${categoryBlocksHtml}
 </div>
-<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
-<tr><td style="background:${BURGUNDY};border-radius:8px;">
-<a href="${SITE_URL}/menu.html" style="display:inline-block;padding:12px 28px;color:#ffffff;text-decoration:none;font-weight:bold;">View Menu &amp; Order</a>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px auto 0;">
+<tr><td bgcolor="${BURGUNDY}" style="background-color:${BURGUNDY};border-radius:8px;">
+<a href="${SITE_URL}/menu.html" style="display:inline-block;padding:14px 32px;color:${CREAM};text-decoration:none;font-weight:bold;">View Menu &amp; Order</a>
 </td></tr>
 </table>
 `;
@@ -450,7 +502,7 @@ ${textFooter([
     return {
         subject: null, // caller supplies the admin-configured subject line
         html: emailShell({
-            preheader: "We're back from vacation and ordering is now open!",
+            preheader: normalizePreviewText(previewText) || "We're back from vacation and ordering is now open!",
             bodyHtml,
             footerLinks: [
                 { label: "Menu", url: `${SITE_URL}/menu.html` },

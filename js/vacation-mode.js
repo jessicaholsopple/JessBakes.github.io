@@ -74,7 +74,8 @@
                 name: item.name || "",
                 price: toNumber(item.price, 0),
                 description: item.description || "",
-                product_type: item.product_type || "standard"
+                product_type: item.product_type || "standard",
+                builder_size: item.builder_size == null ? null : Number(item.builder_size)
             }))
             .sort((a, b) => a.id.localeCompare(b.id));
 
