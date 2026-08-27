@@ -28,7 +28,7 @@ async function loadSettings(adminClient: any) {
 async function loadLiveMenuRows(adminClient: any) {
     const { data } = await adminClient
         .from("menu_items")
-        .select("id, name, description, price, available, product_type");
+        .select("id, name, description, price, available, product_type, category, sort_order");
     return data || [];
 }
 
@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
 
     if (action === "preview") {
         const menuRows = await loadLiveMenuRows(adminClient);
-        const categories = buildVacationReopeningMenuCategories(menuRows);
+        const { categories, warnings } = buildVacationReopeningMenuCategories(menuRows);
         const skipReason = weeklyMenuSkipReason(categories);
         const menuSnapshotKey = buildMenuSnapshotKey(menuRows);
 
@@ -94,13 +94,18 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString()
         }).eq("id", cycleId);
 
+        // Preview always completes (never blocked) -- but surfaces a
+        // clear warning naming any product that landed in "Other" for
+        // lacking a category, per the requirement that a known product
+        // must never silently vanish into that bucket unnoticed.
         return json({
             ok: true,
             subject: cycle.email_subject || "We're back! Ordering is open again",
             html: rendered.html,
             text: rendered.text,
             menuSnapshotKey,
-            skipReason
+            skipReason,
+            warnings
         });
     }
 
@@ -108,6 +113,14 @@ Deno.serve(async (req) => {
         const settings = await loadSettings(adminClient);
         if (!settings.test_recipient_email) {
             return json({ ok: false, reason: "missing_test_recipient" });
+        }
+
+        // A test send must not go out with a knowingly malformed menu
+        // either -- same guard as the real campaign path.
+        const menuRows = await loadLiveMenuRows(adminClient);
+        const { warnings } = buildVacationReopeningMenuCategories(menuRows);
+        if (warnings.length > 0) {
+            return json({ ok: false, reason: "uncategorized_products", products: warnings });
         }
 
         // Structurally incapable of reaching a real subscriber: no

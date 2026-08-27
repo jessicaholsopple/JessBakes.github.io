@@ -344,69 +344,126 @@ test("menu: buildMenuSnapshotKey (server) is byte-for-byte identical to Vacation
     }
 });
 
-test("menu: buildVacationReopeningMenuCategories groups by category, in the canonical bread/cookie/dessert/seasonal order, alphabetized within each", async () => {
+test("menu: buildVacationReopeningMenuCategories groups by category, in the canonical bread/cookie/dessert/seasonal order, alphabetized (case-insensitive) within each -- this is the current live 9-item menu", async () => {
     const m = await import(SHARED + "menu.mjs");
+    // The exact live production shape: 6 cookies (incl. two Mix & Match
+    // boxes) + 3 desserts, no bread currently available.
     const rows = [
-        { name: "S'mores", available: true, category: "cookie", product_type: "standard" },
-        { name: "Brown Butter Sea Salt Chocolate Chip", available: true, category: "cookie", product_type: "standard" },
-        { name: "Strawberry Shortcake", available: true, category: "cookie", product_type: "standard" },
-        { name: "Sea Salt Fudge Brownie", available: true, category: "dessert", product_type: "standard" },
-        { name: "Cinnamon Rolls", available: true, category: "dessert", product_type: "standard" },
-        { name: "Classic Boule", available: true, category: "bread", product_type: "standard" },
-        { name: "Archived Item", available: false, category: "bread", product_type: "standard" }
+        { id: "1", name: "Brown Butter Sea Salt Chocolate Chip", available: true, category: "cookie", product_type: "standard" },
+        { id: "2", name: "S'mores", available: true, category: "cookie", product_type: "standard" },
+        { id: "3", name: "Strawberry Shortcake", available: true, category: "cookie", product_type: "standard" },
+        { id: "4", name: "Browned Butter Snickerdoodle", available: true, category: "cookie", product_type: "standard" },
+        { id: "5", name: "6 Mix & Match Cookies", available: true, category: "cookie", product_type: "builder" },
+        { id: "6", name: "12 Mix & Match Cookies", available: true, category: "cookie", product_type: "builder" },
+        { id: "7", name: "Classic Cinnamon Rolls", available: true, category: "dessert", product_type: "standard" },
+        { id: "8", name: "Classic Sea Salt Fudge Brownie", available: true, category: "dessert", product_type: "standard" },
+        { id: "9", name: "Classic Sea Salt Fudge Brownie (Family Pan)", available: true, category: "dessert", product_type: "standard" },
+        { id: "10", name: "Archived Item", available: false, category: "bread", product_type: "standard" }
     ];
 
-    const categories = m.buildVacationReopeningMenuCategories(rows);
+    const { categories, warnings } = m.buildVacationReopeningMenuCategories(rows);
 
-    assert.equal(categories.length, 3);
-    assert.deepEqual(categories.map(c => c.categoryLabel), ["Sourdough Bread", "Sourdough Cookies", "Desserts"]);
-
-    const bread = categories.find(c => c.categoryLabel === "Sourdough Bread");
-    assert.deepEqual(bread.items.map(i => i.name), ["Classic Boule"]);
+    assert.deepEqual(warnings, []);
+    // No bread heading -- zero available bread items -- and no Other.
+    assert.deepEqual(categories.map(c => c.categoryLabel), ["Sourdough Cookies", "Sourdough Desserts"]);
 
     const cookies = categories.find(c => c.categoryLabel === "Sourdough Cookies");
+    assert.equal(cookies.items.length, 6);
     assert.deepEqual(cookies.items.map(i => i.name), [
-        "Brown Butter Sea Salt Chocolate Chip", "S'mores", "Strawberry Shortcake"
+        "12 Mix & Match Cookies", "6 Mix & Match Cookies", "Brown Butter Sea Salt Chocolate Chip",
+        "Browned Butter Snickerdoodle", "S'mores", "Strawberry Shortcake"
     ]);
 
-    const desserts = categories.find(c => c.categoryLabel === "Desserts");
-    assert.deepEqual(desserts.items.map(i => i.name), ["Cinnamon Rolls", "Sea Salt Fudge Brownie"]);
+    const desserts = categories.find(c => c.categoryLabel === "Sourdough Desserts");
+    assert.equal(desserts.items.length, 3);
+    assert.deepEqual(desserts.items.map(i => i.name), [
+        "Classic Cinnamon Rolls", "Classic Sea Salt Fudge Brownie", "Classic Sea Salt Fudge Brownie (Family Pan)"
+    ]);
 });
 
-test("menu: buildVacationReopeningMenuCategories excludes unavailable/archived items entirely (never an empty category)", async () => {
+test("menu: buildVacationReopeningMenuCategories renders Sourdough Bread when bread is available, and omits it entirely when not", async () => {
     const m = await import(SHARED + "menu.mjs");
-    const categories = m.buildVacationReopeningMenuCategories([
-        { name: "Archived Item", available: false, category: "bread", product_type: "standard" }
+    const withBread = m.buildVacationReopeningMenuCategories([
+        { id: "1", name: "Classic Boule", available: true, category: "bread", product_type: "standard" }
+    ]);
+    assert.deepEqual(withBread.categories.map(c => c.categoryLabel), ["Sourdough Bread"]);
+
+    const withoutBread = m.buildVacationReopeningMenuCategories([
+        { id: "1", name: "S'mores", available: true, category: "cookie", product_type: "standard" }
+    ]);
+    assert.ok(!withoutBread.categories.some(c => c.categoryLabel === "Sourdough Bread"));
+});
+
+test("menu: buildVacationReopeningMenuCategories excludes unavailable and archived items entirely (never an empty category, never counted as a warning)", async () => {
+    const m = await import(SHARED + "menu.mjs");
+    const { categories, warnings } = m.buildVacationReopeningMenuCategories([
+        { id: "1", name: "Archived Item", available: false, category: "bread", product_type: "standard" }
     ]);
     assert.deepEqual(categories, []);
+    assert.deepEqual(warnings, []);
 });
 
-test("menu: buildVacationReopeningMenuCategories includes a future/unknown category automatically, sorted after the known ones", async () => {
+test("menu: buildVacationReopeningMenuCategories includes a genuinely new (but present) category automatically, sorted after the known ones -- never Other", async () => {
     const m = await import(SHARED + "menu.mjs");
-    const categories = m.buildVacationReopeningMenuCategories([
-        { name: "Sourdough Boule", available: true, category: "bread", product_type: "standard" },
-        { name: "Mystery Muffin", available: true, category: "pastry", product_type: "standard" }
+    const { categories, warnings } = m.buildVacationReopeningMenuCategories([
+        { id: "1", name: "Sourdough Boule", available: true, category: "bread", product_type: "standard" },
+        { id: "2", name: "Mystery Muffin", available: true, category: "gift-box", product_type: "standard" }
     ]);
     assert.equal(categories.length, 2);
     assert.equal(categories[0].categoryLabel, "Sourdough Bread");
-    assert.equal(categories[1].categoryLabel, "Pastry");
+    assert.equal(categories[1].categoryLabel, "Gift Box");
+    assert.deepEqual(warnings, []);
 });
 
-test("menu: buildVacationReopeningMenuCategories tags builder products with productType, for the 'choose your flavors' note", async () => {
+test("menu: buildVacationReopeningMenuCategories puts a genuinely uncategorized product in a final 'Other' group and reports it as a warning -- a KNOWN category never lands here", async () => {
     const m = await import(SHARED + "menu.mjs");
-    const categories = m.buildVacationReopeningMenuCategories([
-        { name: "6 or 12 Cookie Box", available: true, category: "cookie", product_type: "builder" }
+    const { categories, warnings } = m.buildVacationReopeningMenuCategories([
+        { id: "1", name: "Sourdough Boule", available: true, category: "bread", product_type: "standard" },
+        { id: "2", name: "Mystery Item", available: true, category: null, product_type: "standard" },
+        { id: "3", name: "Blank Category Item", available: true, category: "   ", product_type: "standard" }
+    ]);
+
+    assert.deepEqual(warnings, ["Mystery Item", "Blank Category Item"]);
+    assert.equal(categories[categories.length - 1].categoryLabel, "Other");
+    assert.deepEqual(categories[categories.length - 1].items.map(i => i.name), ["Blank Category Item", "Mystery Item"]);
+    // Other is always last, regardless of alphabetical position.
+    assert.equal(categories[0].categoryLabel, "Sourdough Bread");
+});
+
+test("menu: buildVacationReopeningMenuCategories throws a loud, specific error when every row is missing the category property -- the exact 'forgot it in .select()' bug class, instead of silently dumping everything into Other", async () => {
+    const m = await import(SHARED + "menu.mjs");
+    assert.throws(
+        () => m.buildVacationReopeningMenuCategories([
+            { id: "1", name: "Sourdough Boule", available: true, product_type: "standard" }
+        ]),
+        /category/
+    );
+});
+
+test("menu: buildVacationReopeningMenuCategories does NOT throw for a genuinely empty menu, or when category is present but null/empty on some rows", async () => {
+    const m = await import(SHARED + "menu.mjs");
+    assert.doesNotThrow(() => m.buildVacationReopeningMenuCategories([]));
+    assert.doesNotThrow(() => m.buildVacationReopeningMenuCategories([
+        { id: "1", name: "x", available: true, category: null, product_type: "standard" }
+    ]));
+});
+
+test("menu: buildVacationReopeningMenuCategories tags builder products with productType (the template shows only the plain name -- no appended instructions)", async () => {
+    const m = await import(SHARED + "menu.mjs");
+    const { categories } = m.buildVacationReopeningMenuCategories([
+        { id: "1", name: "6 or 12 Cookie Box", available: true, category: "cookie", product_type: "builder" }
     ]);
     assert.equal(categories[0].items[0].productType, "builder");
+    assert.equal(categories[0].items[0].name, "6 or 12 Cookie Box");
 });
 
 test("menu: weeklyMenuSkipReason applies identically to a vacation-reopening category list (shared, not weekly-specific logic)", async () => {
     const m = await import(SHARED + "menu.mjs");
-    assert.equal(m.weeklyMenuSkipReason(m.buildVacationReopeningMenuCategories([])), "empty_menu");
+    assert.equal(m.weeklyMenuSkipReason(m.buildVacationReopeningMenuCategories([]).categories), "empty_menu");
     assert.equal(
         m.weeklyMenuSkipReason(m.buildVacationReopeningMenuCategories([
-            { name: "x", available: true, category: "bread", product_type: "standard" }
-        ])),
+            { id: "1", name: "x", available: true, category: "bread", product_type: "standard" }
+        ]).categories),
         null
     );
 });
@@ -642,7 +699,7 @@ test("templates: vacationReopeningEmail category headings render distinctly from
     assert.doesNotMatch(result.html, /<h2[^>]*>S&#039;mores<\/h2>/);
 });
 
-test("templates: vacationReopeningEmail summarizes a Mix & Match box as one line -- never enumerates every flavor", async () => {
+test("templates: vacationReopeningEmail shows a Mix & Match box as its exact plain name only -- no appended instructions, no per-flavor enumeration", async () => {
     const t = await import(SHARED + "templates.mjs");
     const result = t.vacationReopeningEmail({
         additionalMessage: "",
@@ -650,11 +707,29 @@ test("templates: vacationReopeningEmail summarizes a Mix & Match box as one line
         unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=abc"
     });
 
-    assert.match(result.html, /choose your own flavors on the Menu/i);
+    assert.match(result.html, />6 or 12 Cookie Mix &amp; Match Box<\/div>/);
+    assert.doesNotMatch(result.html, /choose your own flavors/i);
+    assert.doesNotMatch(result.text, /choose your own flavors/i);
     // No per-flavor names ever appear -- this template is only ever
     // given the box product itself, never its eligible-cookie list.
     assert.doesNotMatch(result.html, /Chocolate Chip/);
     assert.doesNotMatch(result.html, /Snickerdoodle/);
+});
+
+test("templates: vacationReopeningEmail uses a simple vertical list -- no <table> grid, no side-by-side category cards", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.vacationReopeningEmail({
+        additionalMessage: "",
+        categories: [{ categoryLabel: "Sourdough Cookies", items: [{ name: "S'mores", productType: "standard" }, { name: "Snickerdoodle", productType: "standard" }] }],
+        unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=abc"
+    });
+
+    // The menu section itself must not be a <table> -- only the
+    // unrelated CTA-button table (an email-client compatibility
+    // pattern, not a data grid) that comes after it may still use one.
+    const ctaTableStart = result.html.indexOf('<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">');
+    const menuSection = result.html.slice(result.html.indexOf("Sourdough Cookies") - 40, ctaTableStart);
+    assert.doesNotMatch(menuSection, /<table/);
 });
 
 test("templates: adminNewOrderEmail includes the required subject format, every requested field, unit prices, and an admin link", async () => {

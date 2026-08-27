@@ -89,12 +89,23 @@ export async function buildAndSendVacationCampaign(adminClient: any, cycleId: st
     // snapshot from when Vacation Mode was first turned on.
     const { data: menuRows, error: menuError } = await adminClient
         .from("menu_items")
-        .select("id, name, description, price, available, product_type");
+        .select("id, name, description, price, available, product_type, category, sort_order");
 
-    const categories = menuError ? null : buildVacationReopeningMenuCategories(menuRows || []);
+    if (menuError) {
+        return { ok: false, skipped: true, reason: "menu_load_failed" };
+    }
+
+    const { categories, warnings } = buildVacationReopeningMenuCategories(menuRows || []);
     const skipReason = weeklyMenuSkipReason(categories);
     if (skipReason) {
         return { ok: false, skipped: true, reason: skipReason };
+    }
+
+    // A real (or test) send must never go out with products silently
+    // dumped into "Other" -- that's a classification problem the
+    // admin needs to fix, not something to mail around.
+    if (warnings.length > 0) {
+        return { ok: false, skipped: true, reason: "uncategorized_products", products: warnings };
     }
 
     const menuSnapshotKey = buildMenuSnapshotKey(menuRows || []);

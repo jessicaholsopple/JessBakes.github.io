@@ -527,3 +527,57 @@ test("18. reloading the page (a fresh sandbox load) never re-sends a test email 
 
     assert.equal(supabaseClient.invokeCalls.length, 0, "loading the panel must never itself trigger a send");
 });
+
+/* ==========================================
+   Categorization warning surfacing (a known product must never
+   silently vanish into "Other" unnoticed)
+   ========================================== */
+
+test("19. previewVacationEmail surfaces the server's categorization warnings by naming the affected products", async () => {
+    const { sandbox, elements } = loadAdminVacationSandbox({
+        resolveQuery: resolverForActiveCycle(),
+        resolveInvoke: (name) => name === "vacation-campaign"
+            ? { data: { ok: true, html: "<p>x</p>", text: "x", menuSnapshotKey: "abc", warnings: ["Mystery Item"] }, error: null }
+            : { data: { ok: true }, error: null }
+    });
+    await sandbox.__loadVacationPanel();
+
+    await sandbox.__previewVacationEmail();
+
+    assert.equal(elements.get("vacationCategorizationWarning").style.display, "block");
+    assert.match(elements.get("vacationCategorizationWarning").innerHTML, /Mystery Item/);
+    assert.match(elements.get("vacationPreviewFeedback").className, /is-error/);
+});
+
+test("20. previewVacationEmail clears any prior categorization warning once the menu is clean", async () => {
+    const { sandbox, elements } = loadAdminVacationSandbox({
+        resolveQuery: resolverForActiveCycle(),
+        resolveInvoke: (name) => name === "vacation-campaign"
+            ? { data: { ok: true, html: "<p>x</p>", text: "x", menuSnapshotKey: "abc", warnings: [] }, error: null }
+            : { data: { ok: true }, error: null }
+    });
+    await sandbox.__loadVacationPanel();
+    elements.set("vacationCategorizationWarning", { style: { display: "block" }, innerHTML: "stale warning" });
+
+    await sandbox.__previewVacationEmail();
+
+    assert.equal(elements.get("vacationCategorizationWarning").style.display, "none");
+    assert.match(elements.get("vacationPreviewFeedback").className, /is-success/);
+});
+
+test("21. sendVacationTestEmail is blocked (never sends) when the live menu has uncategorized products, and names them", async () => {
+    const { sandbox, elements, supabaseClient } = loadAdminVacationSandbox({
+        resolveQuery: resolverForActiveCycle(),
+        resolveInvoke: (name) => name === "vacation-campaign"
+            ? { data: { ok: false, reason: "uncategorized_products", products: ["Mystery Item", "Blank Category Item"] }, error: null }
+            : { data: { ok: true }, error: null }
+    });
+    await sandbox.__loadVacationPanel();
+
+    await sandbox.__sendVacationTestEmail();
+
+    assert.match(elements.get("vacationCategorizationWarning").innerHTML, /Mystery Item/);
+    assert.match(elements.get("vacationCategorizationWarning").innerHTML, /Blank Category Item/);
+    assert.match(elements.get("vacationSendTestFeedback").textContent, /Blocked/);
+    assert.match(elements.get("vacationSendTestFeedback").className, /is-error/);
+});

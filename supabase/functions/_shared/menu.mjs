@@ -66,55 +66,117 @@ export function buildMenuSnapshotKey(menuItemsRows) {
 }
 
 /** Canonical customer-facing category labels and deliberate display
- * order -- copied from js/menu.js's own MENU_CATEGORY_NAMES so the
- * reopening email groups/orders categories exactly like the public
- * Menu page does. Duplicated (not imported) for the same reason
- * buildMenuSnapshotKey is duplicated above: no build step shares one
- * implementation between the browser script and this Deno module. A
- * category not in this map still gets included automatically --
- * see categoryLabel() below -- it just sorts after the known ones,
- * alphabetically by its generated label. */
+ * order -- the KEYS match js/menu.js's own MENU_CATEGORY_NAMES keys
+ * exactly (same canonical `menu_items.category` column, same values:
+ * 'bread'/'cookie'/'dessert'/'seasonal'), so the reopening email
+ * groups/orders categories using the identical data-driven source the
+ * public Menu page uses -- never a name/ID guess. The LABEL TEXT for
+ * 'dessert' is deliberately "Sourdough Desserts" here even though the
+ * public Menu page's own on-page heading says plain "Desserts" -- an
+ * explicit, requested difference in wording only; the underlying
+ * category value/order is identical. Duplicated (not imported) for
+ * the same reason buildMenuSnapshotKey is duplicated above: no build
+ * step shares one implementation between the browser script and this
+ * Deno module. A category value not in this map still gets included
+ * automatically -- see categoryLabel() below -- it just sorts after
+ * the known ones, alphabetically by its generated label. */
 const VACATION_MENU_CATEGORY_LABELS = {
     bread: "Sourdough Bread",
     cookie: "Sourdough Cookies",
-    dessert: "Desserts",
+    dessert: "Sourdough Desserts",
     seasonal: "Seasonal Specials"
 };
 
 const VACATION_MENU_CATEGORY_ORDER = Object.keys(VACATION_MENU_CATEGORY_LABELS);
 
+const OTHER_LABEL = "Other";
+
+/** Turns a raw (but non-empty) category value into a readable label:
+ * the known map above, or -- for a genuinely new category nobody has
+ * hardcoded a label for yet -- a title-cased version of the raw
+ * value ("gift-box"/"gift_box" -> "Gift Box"). This is the "configured
+ * display label" fallback: it only ever runs for a category that
+ * actually HAS a value, never for a missing one (see the Other-bucket
+ * handling in buildVacationReopeningMenuCategories). */
 function categoryLabel(category) {
     if (VACATION_MENU_CATEGORY_LABELS[category]) {
         return VACATION_MENU_CATEGORY_LABELS[category];
     }
-    const raw = String(category || "").trim();
-    if (!raw) {
-        return "Other";
+    return String(category)
+        .split(/[-_\s]+/)
+        .filter(Boolean)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+}
+
+function localeCompareNames(a, b) {
+    return String(a || "").localeCompare(String(b || ""), undefined, { sensitivity: "base" });
+}
+
+/**
+ * Renderer-boundary guard: if the caller's query forgot to SELECT the
+ * `category` column, every row's `.category` key is simply absent
+ * (not null -- genuinely not a property on the object at all), and
+ * every product would silently collapse into one "Other" heading --
+ * exactly the bug this guard exists to catch loudly instead. A
+ * legitimately uncategorized product (selected the column, got back
+ * an actual null/empty value) is a completely different, expected
+ * case and is handled by the Other bucket below, not by this throw.
+ */
+function assertMenuRowsHaveCategoryField(rows) {
+    if (rows.length > 0 && rows.every(row => !("category" in row))) {
+        throw new Error(
+            "buildVacationReopeningMenuCategories: every menu_items row is missing the 'category' " +
+            "property -- the caller's .select(...) almost certainly forgot to include 'category'. " +
+            "Refusing to silently group every product under \"Other\"."
+        );
     }
-    return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 /**
  * Groups the live, available menu into the shape
- * vacationReopeningEmail() renders: an array of
- * `{ categoryLabel, items: [{ name, productType }] }`, categories in
- * the canonical bread/cookie/dessert/seasonal order (any unrecognized
- * category sorts after those, alphabetically by its own label), items
- * alphabetized by name within each category. Only ever reads live
- * `menu_items` -- archived/unavailable/unpublished products, and
- * ballot options that were never actually published as a menu item,
- * are excluded by construction (the `available === true` filter),
- * never by a special case here. No description or price is included
- * -- the reopening email is a simple, scannable name list, not a
- * priced menu (customers place the actual order on the Menu page).
+ * vacationReopeningEmail() renders: `{ categories, warnings }`.
+ *
+ * `categories` is `[{ categoryLabel, items: [{ name, productType }] }]`,
+ * in the canonical bread/cookie/dessert/seasonal order (any
+ * legitimately-new category value sorts after those, alphabetically
+ * by its generated label), items alphabetized case-insensitively
+ * within each category. A final "Other" category is included ONLY
+ * when at least one product has a genuinely missing category
+ * (null/empty) -- a known or legitimately-new category value NEVER
+ * lands in Other.
+ *
+ * `warnings` lists the exact product names that landed in Other, so
+ * the admin preview can surface them -- see vacation-campaign/
+ * index.ts and _shared/vacationCampaign.ts, which block an actual
+ * send whenever this is non-empty rather than silently mailing a
+ * malformed menu.
+ *
+ * Only ever reads live `menu_items` -- archived/unavailable/
+ * unpublished products, and ballot options that were never actually
+ * published as a menu item, are excluded by construction (the
+ * `available === true` filter), never by a special case here. No
+ * description or price is included -- the reopening email is a
+ * simple, scannable name list, not a priced menu (customers place the
+ * actual order on the Menu page).
  */
 export function buildVacationReopeningMenuCategories(menuItemsRows) {
-    const rows = (Array.isArray(menuItemsRows) ? menuItemsRows : [])
-        .filter(row => row && row.available === true);
+    const allRows = Array.isArray(menuItemsRows) ? menuItemsRows : [];
+    assertMenuRowsHaveCategoryField(allRows);
+
+    const rows = allRows.filter(row => row && row.available === true);
 
     const byCategory = new Map();
+    const warnings = [];
+
     for (const row of rows) {
-        const key = row.category || "";
+        const raw = row.category == null ? "" : String(row.category).trim();
+        const key = raw === "" ? OTHER_LABEL : raw;
+
+        if (raw === "") {
+            warnings.push(row.name);
+        }
+
         if (!byCategory.has(key)) {
             byCategory.set(key, []);
         }
@@ -124,19 +186,27 @@ export function buildVacationReopeningMenuCategories(menuItemsRows) {
         });
     }
 
-    const categoryKeys = Array.from(byCategory.keys()).sort((a, b) => {
+    const categoryKeys = Array.from(byCategory.keys()).filter(k => k !== OTHER_LABEL).sort((a, b) => {
         const ai = VACATION_MENU_CATEGORY_ORDER.indexOf(a);
         const bi = VACATION_MENU_CATEGORY_ORDER.indexOf(b);
         if (ai !== -1 && bi !== -1) return ai - bi;
         if (ai !== -1) return -1;
         if (bi !== -1) return 1;
-        return categoryLabel(a).localeCompare(categoryLabel(b));
+        return localeCompareNames(categoryLabel(a), categoryLabel(b));
     });
 
-    return categoryKeys.map(key => ({
+    const categories = categoryKeys.map(key => ({
         categoryLabel: categoryLabel(key),
-        items: byCategory.get(key)
-            .slice()
-            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
+        items: byCategory.get(key).slice().sort((a, b) => localeCompareNames(a.name, b.name))
     }));
+
+    // Other is always last, and only appears when it's genuinely non-empty.
+    if (byCategory.has(OTHER_LABEL)) {
+        categories.push({
+            categoryLabel: OTHER_LABEL,
+            items: byCategory.get(OTHER_LABEL).slice().sort((a, b) => localeCompareNames(a.name, b.name))
+        });
+    }
+
+    return { categories, warnings };
 }

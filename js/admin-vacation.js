@@ -467,7 +467,13 @@ async function previewVacationEmail() {
             vacationCurrentCycle.preview_generated_at = new Date().toISOString();
         }
 
-        feedback.success("Preview generated from the current published menu and your saved draft.");
+        renderCategorizationWarning(data.warnings);
+
+        if (Array.isArray(data.warnings) && data.warnings.length > 0) {
+            feedback.error(`Preview generated, but ${data.warnings.length} product(s) have no category -- see the warning above. A real send or test send is blocked until this is fixed.`);
+        } else {
+            feedback.success("Preview generated from the current published menu and your saved draft.");
+        }
         renderVacationReadiness();
     } finally {
         vacationPreviewInFlight = false;
@@ -495,14 +501,20 @@ async function sendVacationTestEmail() {
 
         if (error || !data?.ok) {
             console.error(error || data);
-            feedback.error(
-                data?.reason === "missing_test_recipient"
-                    ? "Set a test recipient email on the Email page first."
-                    : "Couldn't send the test email. Please try again."
-            );
+            if (data?.reason === "uncategorized_products") {
+                renderCategorizationWarning(data.products);
+                feedback.error(`Blocked: ${(data.products || []).length} product(s) have no category -- see the warning above. Fix their category, then try again.`);
+            } else {
+                feedback.error(
+                    data?.reason === "missing_test_recipient"
+                        ? "Set a test recipient email on the Email page first."
+                        : "Couldn't send the test email. Please try again."
+                );
+            }
             return;
         }
 
+        renderCategorizationWarning(null);
         feedback.success(`Test email sent successfully to ${data.testRecipient}.`);
     } finally {
         vacationTestSendInFlight = false;
@@ -684,6 +696,28 @@ function setValue(id, value) {
 function setChecked(id, value) {
     const el = document.getElementById(id);
     if (el) el.checked = !!value;
+}
+
+/** Shows (or clears, when `products` is empty/null) a visible warning
+ *  naming exactly which products have no category and would either
+ *  land in a final "Other" heading (preview) or block a real/test
+ *  send entirely -- a known product must never silently vanish into
+ *  Other unnoticed. */
+function renderCategorizationWarning(products) {
+    const box = document.getElementById("vacationCategorizationWarning");
+    if (!box) return;
+
+    const list = Array.isArray(products) ? products.filter(Boolean) : [];
+    if (list.length === 0) {
+        box.style.display = "none";
+        box.innerHTML = "";
+        return;
+    }
+
+    box.style.display = "block";
+    box.innerHTML = "<strong>These products have no category and need one set on the Menu page:</strong><ul style='margin:8px 0 0 20px;padding:0;'>"
+        + list.map(name => `<li>${escapeVacationHtml(name)}</li>`).join("")
+        + "</ul>";
 }
 
 function toIsoOrNull(localValue) {

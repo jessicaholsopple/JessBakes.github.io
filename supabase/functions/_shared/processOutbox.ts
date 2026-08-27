@@ -218,8 +218,8 @@ async function renderForRow(adminClient: any, row: any) {
 
             const { data: menuRows } = await adminClient
                 .from("menu_items")
-                .select("id, name, description, price, available, product_type");
-            categories = buildVacationReopeningMenuCategories(menuRows || []);
+                .select("id, name, description, price, available, product_type, category, sort_order");
+            categories = buildVacationReopeningMenuCategories(menuRows || []).categories;
         }
 
         let unsubscribeUrl = `${SITE_URL}/unsubscribe.html`;

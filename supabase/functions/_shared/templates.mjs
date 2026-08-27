@@ -389,29 +389,29 @@ ${textFooter([
 
    `categories` is the pre-grouped/sorted shape from
    buildVacationReopeningMenuCategories() in menu.mjs:
-   [{ categoryLabel, items: [{ name, productType }] }]. Mix & Match/
-   builder products get a short inline note instead of ever expanding
-   into every possible flavor -- the same "don't enumerate every
-   flavor" design already used by every other customer-facing
-   template in this file.
+   [{ categoryLabel, items: [{ name, productType }] }]. Only the exact
+   customer-facing product name is ever shown -- no appended
+   instructions for Mix & Match/builder products (the "View Menu &
+   Order" button is the one and only place customers are pointed to
+   configure a box), no description, no price.
+
+   Layout is a simple vertical list per category (large burgundy
+   title-case heading, then one product per line, a hairline rule
+   between items only -- never a table grid, never side-by-side
+   category cards), so it stays readable in Gmail desktop/mobile,
+   Apple Mail, and narrow clients.
    ============================ */
 export function vacationReopeningEmail({ additionalMessage, categories, unsubscribeUrl }) {
-    const builderNote = "(choose your own flavors on the Menu)";
-
     const categoryBlocksHtml = (categories || []).map(cat => `
-<tr><td style="padding:18px 0 6px 0;">
-  <h2 style="margin:0;font-size:17px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${BURGUNDY};">${esc(cat.categoryLabel)}</h2>
-</td></tr>
-${(cat.items || []).map(item => `
-<tr><td style="padding:5px 0 5px 4px;font-size:14px;border-bottom:1px solid #f1e7da;">
-  ${esc(item.name)}${item.productType === "builder" ? ` <span style="color:${MUTED};font-size:12px;">${builderNote}</span>` : ""}
-</td></tr>`).join("")}`).join("");
+<div style="margin:0 0 22px 0;">
+  <h2 style="margin:0 0 8px 0;font-size:19px;font-weight:700;color:${BURGUNDY};">${esc(cat.categoryLabel)}</h2>
+  ${(cat.items || []).map(item => `
+  <div style="padding:6px 0;font-size:15px;border-bottom:1px solid #f1e7da;">${esc(item.name)}</div>`).join("")}
+</div>`).join("");
 
     const categoryBlocksText = (categories || []).map(cat =>
-        `${String(cat.categoryLabel || "").toUpperCase()}\n` +
-        (cat.items || []).map(item =>
-            `  - ${item.name}${item.productType === "builder" ? " " + builderNote : ""}`
-        ).join("\n")
+        `${cat.categoryLabel}\n` +
+        (cat.items || []).map(item => `  - ${item.name}`).join("\n")
     ).join("\n\n");
 
     const additionalHtml = escParagraphs(additionalMessage);
@@ -422,9 +422,9 @@ ${(cat.items || []).map(item => `
 <h1 style="font-size:20px;margin:0 0 12px 0;">Jess Bakes is back!</h1>
 <p style="margin:0 0 8px 0;">We're back from vacation and ordering is now open!</p>
 ${additionalHtml}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0 20px 0;">
+<div style="margin:16px 0 20px 0;">
 ${categoryBlocksHtml}
-</table>
+</div>
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
 <tr><td style="background:${BURGUNDY};border-radius:8px;">
 <a href="${SITE_URL}/menu.html" style="display:inline-block;padding:12px 28px;color:#ffffff;text-decoration:none;font-weight:bold;">View Menu &amp; Order</a>
