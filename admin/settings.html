@@ -147,6 +147,172 @@
 
         </section>
 
+        <section class="dashboard-section" id="vacationAdminSection">
+
+            <h2>Vacation Mode</h2>
+
+            <p>
+                Pause new orders while you're away, keep the homepage/menu
+                informational and the ballot open, and prepare a reopening
+                email to send the moment you resume.
+            </p>
+
+            <div id="vacationAdminMessage" class="admin-inline-message" style="display:none;"></div>
+
+            <div id="vacationNotActiveView">
+
+                <p><strong>Vacation Mode is currently off.</strong> Ordering is open as usual.</p>
+
+                <div class="form-group">
+                    <label for="vacationStartHeading">Heading</label>
+                    <input type="text" id="vacationStartHeading" value="We're on a baking break!">
+                </div>
+                <div class="form-group">
+                    <label for="vacationStartMessage">Message</label>
+                    <textarea id="vacationStartMessage" rows="3" placeholder="Let customers know what's going on and when you'll be back."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="vacationStartReopenAt">Ordering reopens</label>
+                    <input type="datetime-local" id="vacationStartReopenAt">
+                </div>
+                <div class="form-group">
+                    <label for="vacationStartPickupAt">Next pickup date &amp; time</label>
+                    <input type="datetime-local" id="vacationStartPickupAt">
+                </div>
+
+                <button id="vacationStartBtn" class="primary-btn">Start Vacation Mode</button>
+
+                <div id="vacationLastCycleSummary" style="display:none;margin-top:24px;">
+                    <h3>Last Reopening Campaign</h3>
+                    <div class="email-status-grid">
+                        <div class="email-status-card"><h3>Sent</h3><div class="value" id="vacationLastSentDate">—</div></div>
+                        <div class="email-status-card"><h3>Recipients</h3><div class="value" id="vacationLastRecipientCount">—</div></div>
+                        <div class="email-status-card"><h3>Delivered</h3><div class="value" id="vacationLastSentCount">—</div></div>
+                        <div class="email-status-card"><h3>Failed</h3><div class="value" id="vacationLastFailedCount">—</div></div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div id="vacationActiveView" style="display:none;">
+
+                <div class="email-status-grid">
+                    <div class="email-status-card"><h3>Status</h3><div class="value">Active</div></div>
+                    <div class="email-status-card"><h3>Started</h3><div class="value" id="vacationActiveStartedAt">—</div></div>
+                    <div class="email-status-card"><h3>Ordering Reopens</h3><div class="value" id="vacationActiveReopenAt">—</div></div>
+                    <div class="email-status-card"><h3>Next Pickup</h3><div class="value" id="vacationActivePickupAt">—</div></div>
+                </div>
+
+                <h3>Vacation Details</h3>
+                <div class="form-group">
+                    <label for="vacationHeadingInput">Heading</label>
+                    <input type="text" id="vacationHeadingInput">
+                </div>
+                <div class="form-group">
+                    <label for="vacationMessageInput">Message</label>
+                    <textarea id="vacationMessageInput" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="vacationReopenAtInput">Ordering reopens</label>
+                    <input type="datetime-local" id="vacationReopenAtInput">
+                </div>
+                <div class="form-group">
+                    <label for="vacationPickupAtInput">Next pickup date &amp; time</label>
+                    <input type="datetime-local" id="vacationPickupAtInput">
+                </div>
+                <button id="vacationSaveDetailsBtn" class="primary-btn">Save Vacation Details</button>
+
+                <h3>Reopening Email</h3>
+
+                <div class="email-toggle-row">
+                    <div>
+                        <strong>Send reopening email when ordering resumes</strong>
+                        <p>Turn off if you don't want any reopening campaign this vacation.</p>
+                    </div>
+                    <label><input type="checkbox" id="vacationEmailEnabledToggle"> Enabled</label>
+                </div>
+
+                <div class="form-group">
+                    <label for="vacationEmailSubject">Email subject</label>
+                    <input type="text" id="vacationEmailSubject">
+                </div>
+                <div class="form-group">
+                    <label for="vacationEmailPreviewText">Preview text</label>
+                    <input type="text" id="vacationEmailPreviewText">
+                </div>
+                <div class="form-group">
+                    <label for="vacationEmailIntro">Introduction</label>
+                    <textarea id="vacationEmailIntro" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="vacationEmailClosing">Closing text</label>
+                    <textarea id="vacationEmailClosing" rows="2"></textarea>
+                </div>
+
+                <h4>Recipient Categories</h4>
+                <div class="email-toggle-row">
+                    <div>Ordering-reopening alerts</div>
+                    <label><input type="checkbox" id="vacationRecipientsReopening"> Include</label>
+                </div>
+                <div class="email-toggle-row">
+                    <div>New-menu announcements</div>
+                    <label><input type="checkbox" id="vacationRecipientsMenu"> Include</label>
+                </div>
+                <div class="email-toggle-row">
+                    <div>Other Jess Bakes updates</div>
+                    <label><input type="checkbox" id="vacationRecipientsGeneral"> Include</label>
+                </div>
+
+                <div class="email-status-grid">
+                    <div class="email-status-card"><h3>Eligible Recipients</h3><div class="value" id="vacationEligibleCount">—</div></div>
+                    <div class="email-status-card"><h3>Available Menu Items</h3><div class="value" id="vacationMenuItemCount">—</div></div>
+                    <div class="email-status-card"><h3>Campaign Status</h3><div class="value" id="vacationReadinessBadge">—</div></div>
+                </div>
+
+                <div id="vacationReadinessReasons" class="admin-inline-message is-warning" style="display:none;"></div>
+
+                <div class="email-actions-row">
+                    <button id="vacationSaveEmailBtn" class="primary-btn">Save Reopening Email</button>
+                    <button id="vacationPreviewBtn" class="secondary-btn">Preview Email</button>
+                    <button id="vacationSendTestBtn" class="secondary-btn">Send Test Email</button>
+                    <button id="vacationRetryEmailBtn" class="secondary-btn">Retry Email</button>
+                </div>
+
+                <iframe id="vacationPreviewFrame" title="Reopening email preview" style="display:none;width:100%;height:420px;border:1px solid #e6d8cc;border-radius:12px;margin-top:16px;"></iframe>
+
+                <div class="email-toggle-row">
+                    <div>
+                        <strong>Automatically send the prepared reopening email when ordering resumes</strong>
+                        <p id="vacationAutoSendHint">Available once the campaign is marked Ready.</p>
+                    </div>
+                    <label><input type="checkbox" id="vacationAutoSendToggle" disabled> Enabled</label>
+                </div>
+
+                <h3>Resume Ordering</h3>
+                <div class="email-actions-row">
+                    <button id="vacationResumeReviewBtn" class="primary-btn">Resume Ordering…</button>
+                </div>
+
+                <div id="vacationResumePanel" style="display:none;margin-top:16px;">
+                    <h4>Review before resuming</h4>
+                    <ul id="vacationResumeSummary" style="margin:0 0 12px 20px;padding:0;"></ul>
+                    <div id="vacationResumeProblems" class="admin-inline-message is-warning" style="display:none;"></div>
+                    <div class="email-actions-row">
+                        <button id="vacationResumeSendBtn" class="primary-btn">Resume Ordering &amp; Send Reopening Email</button>
+                        <button id="vacationResumeNoEmailBtn" class="secondary-btn">Resume Without Email</button>
+                        <button id="vacationResumeCancelBtn" class="secondary-btn">Cancel</button>
+                    </div>
+                    <div id="vacationResumeNoEmailConfirm" style="display:none;margin-top:12px;">
+                        <label><input type="checkbox" id="vacationResumeNoEmailConfirmCheckbox"> I understand no reopening email will be sent.</label>
+                        <button id="vacationResumeNoEmailConfirmBtn" class="primary-btn">Confirm: Resume Without Email</button>
+                    </div>
+                    <div id="vacationResumeResult" class="admin-inline-message" style="display:none;margin-top:12px;"></div>
+                </div>
+
+            </div>
+
+        </section>
+
         <section class="dashboard-section">
 
             <h2>Coming Soon</h2>
@@ -175,6 +341,9 @@
 
 <script src="../js/admin-settings.js"></script>
 <script src="../js/admin-push.js"></script>
+
+<script src="../js/vacation-mode.js"></script>
+<script src="../js/admin-vacation.js"></script>
 
 </body>
 
