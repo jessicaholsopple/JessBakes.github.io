@@ -356,7 +356,91 @@ ${textFooter([
 }
 
 /* ============================
-   6) Admin: new order notification (internal, to the bakery owner)
+   6) Vacation reopening announcement
+
+   Sent once per vacation cycle (see vacationReopeningCampaignKey),
+   built from whatever the admin drafted PLUS a fresh, live read of
+   the published menu at send time -- never a menu snapshot captured
+   when Vacation Mode was first turned on. Mix & Match/builder
+   products are summarized as a single line (name, price, a note to
+   choose flavors on the Menu) rather than expanding into every
+   possible flavor -- the same "don't enumerate every flavor" design
+   already used by every other customer-facing template in this file.
+   ============================ */
+export function vacationReopeningEmail({ introMessage, closingMessage, pickupLabel, items, unsubscribeUrl }) {
+    const rows = (items || []).map(i => {
+        const note = i.productType === "builder"
+            ? `<div style="color:${MUTED};font-size:14px;margin-top:2px;">Choose your own flavors on the Menu.</div>`
+            : (i.description ? `<div style="color:${MUTED};font-size:14px;margin-top:2px;">${esc(i.description)}</div>` : "");
+        return `
+<tr>
+  <td style="padding:10px 0;border-bottom:1px solid #f1e7da;vertical-align:top;">
+    <strong>${esc(i.name)}</strong>
+    ${note}
+  </td>
+  <td style="padding:10px 0;border-bottom:1px solid #f1e7da;text-align:right;white-space:nowrap;vertical-align:top;">${eur(i.priceEur)}</td>
+</tr>`;
+    }).join("");
+
+    const textRows = (items || []).map(i => {
+        const note = i.productType === "builder" ? "choose your own flavors on the Menu" : i.description;
+        return `  - ${i.name}${note ? " — " + note : ""} (${eur(i.priceEur)})`;
+    }).join("\n");
+
+    const closingHtml = closingMessage ? `<p style="margin:20px 0 0 0;">${esc(closingMessage)}</p>` : "";
+    const closingText = closingMessage ? `\n${closingMessage}\n` : "";
+
+    const bodyHtml = `
+<h1 style="font-size:20px;margin:0 0 12px 0;">Jess Bakes is back!</h1>
+<p style="margin:0 0 8px 0;">${esc(introMessage)}</p>
+<p style="margin:0 0 20px 0;"><strong>Next pickup:</strong> ${esc(pickupLabel)}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;">
+${rows}
+</table>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+<tr><td style="background:${BURGUNDY};border-radius:8px;">
+<a href="${SITE_URL}/menu.html" style="display:inline-block;padding:12px 28px;color:#ffffff;text-decoration:none;font-weight:bold;">View Menu &amp; Order</a>
+</td></tr>
+</table>
+${closingHtml}
+`;
+
+    const text = `Jess Bakes is back!
+
+${introMessage}
+
+Next pickup: ${pickupLabel}
+
+${textRows}
+
+View the menu and order: ${SITE_URL}/menu.html
+${closingText}${textFooter([
+        "Menu: " + SITE_URL + "/menu.html",
+        "Gallery: " + SITE_URL + "/gallery.html",
+        "Contact: " + SITE_URL + "/contact.html",
+        "Privacy: " + SITE_URL + "/privacy.html",
+        "Unsubscribe: " + unsubscribeUrl
+    ])}`;
+
+    return {
+        subject: null, // caller supplies the admin-configured subject line
+        html: emailShell({
+            preheader: introMessage,
+            bodyHtml,
+            footerLinks: [
+                { label: "Menu", url: `${SITE_URL}/menu.html` },
+                { label: "Gallery", url: `${SITE_URL}/gallery.html` },
+                { label: "Contact", url: `${SITE_URL}/contact.html` },
+                { label: "Privacy", url: `${SITE_URL}/privacy.html` },
+                { label: "Unsubscribe", url: unsubscribeUrl }
+            ]
+        }),
+        text
+    };
+}
+
+/* ============================
+   7) Admin: new order notification (internal, to the bakery owner)
 
    Independent from orderReceivedEmail -- separate outbox row,
    separate idempotency key, separate enabled toggle -- but rendered

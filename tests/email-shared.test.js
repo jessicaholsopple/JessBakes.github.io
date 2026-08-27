@@ -43,6 +43,29 @@ test("idempotency: different orders/consent events/campaigns never collide", asy
     assert.notEqual(idem.adminNewOrderKey("a"), idem.adminNewOrderKey("b"));
 });
 
+test("idempotency: vacation reopening keys are keyed by cycle id, one campaign per cycle, one row per (campaign, subscriber)", async () => {
+    const idem = await import(SHARED + "idempotency.mjs");
+
+    assert.equal(idem.vacationReopeningCampaignKey("cycle-1"), "vacation_reopening:cycle-1");
+    assert.equal(
+        idem.vacationReopeningRecipientKey("vacation_reopening:cycle-1", "sub-1"),
+        "vacation_reopening:cycle-1:sub-1"
+    );
+
+    // Same cycle id requested twice (retry/double-click/scheduler +
+    // manual button both firing) yields the SAME campaign key -- the
+    // unique constraint on email_campaigns.campaign_key is what turns
+    // a second call into a harmless "already exists" no-op.
+    assert.equal(idem.vacationReopeningCampaignKey("cycle-1"), idem.vacationReopeningCampaignKey("cycle-1"));
+
+    // Different cycles (this vacation vs. a future one) never collide,
+    // so a subscriber fulfilled in a past cycle is addressable again.
+    assert.notEqual(idem.vacationReopeningCampaignKey("cycle-1"), idem.vacationReopeningCampaignKey("cycle-2"));
+
+    // Never collides with the unrelated weekly campaign's key space.
+    assert.notEqual(idem.vacationReopeningCampaignKey("cycle-1"), idem.weeklyCampaignKey("cycle-1"));
+});
+
 /* ---------------- schedule.mjs (DST-safe) ---------------- */
 
 test("schedule: due exactly at the configured Berlin local time in summer (CEST, UTC+2)", async () => {
@@ -457,6 +480,51 @@ test("templates: weeklyMenuEmail lists only the given items with EUR prices, a M
     assert.match(result.html, /unsubscribe\.html\?t=abc/);
 });
 
+test("templates: vacationReopeningEmail includes the intro, exact pickup date, a Menu button, and an unsubscribe link", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.vacationReopeningEmail({
+        introMessage: "We're back from vacation and ordering is now open!",
+        closingMessage: "Thanks for your patience while we were away.",
+        pickupLabel: "Sunday, September 14 at 12:30 PM",
+        items: [
+            { name: "Sourdough Boule", description: "Classic", priceEur: 9, productType: "standard" },
+            { name: "6 or 12 Cookie Mix & Match Box", priceEur: 15, productType: "builder" }
+        ],
+        unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=abc"
+    });
+
+    assert.match(result.html, /back from vacation and ordering is now open/);
+    assert.match(result.html, /Sunday, September 14 at 12:30 PM/);
+    assert.match(result.html, /Sourdough Boule/);
+    assert.match(result.html, /€9\.00/);
+    assert.match(result.html, /€15\.00/);
+    assert.match(result.html, /menu\.html/);
+    assert.match(result.html, /View Menu/);
+    assert.match(result.html, /unsubscribe\.html\?t=abc/);
+    assert.match(result.html, /Thanks for your patience/);
+    assert.match(result.text, /Sunday, September 14 at 12:30 PM/);
+    assert.match(result.text, /unsubscribe\.html\?t=abc/);
+});
+
+test("templates: vacationReopeningEmail summarizes a Mix & Match box as one line -- never enumerates every flavor", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.vacationReopeningEmail({
+        introMessage: "We're back!",
+        closingMessage: "",
+        pickupLabel: "Sunday, September 14",
+        items: [
+            { name: "6 or 12 Cookie Mix & Match Box", priceEur: 15, productType: "builder" }
+        ],
+        unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=abc"
+    });
+
+    assert.match(result.html, /Choose your own flavors on the Menu/);
+    // No per-flavor names ever appear -- this template is only ever
+    // given the box product itself, never its eligible-cookie list.
+    assert.doesNotMatch(result.html, /Chocolate Chip/);
+    assert.doesNotMatch(result.html, /Snickerdoodle/);
+});
+
 test("templates: adminNewOrderEmail includes the required subject format, every requested field, unit prices, and an admin link", async () => {
     const t = await import(SHARED + "templates.mjs");
     const result = t.adminNewOrderEmail({
@@ -543,4 +611,15 @@ test("templates: every template escapes HTML in user-supplied fields (no injecti
     assert.doesNotMatch(owner.html, /<img src=x onerror/);
     assert.doesNotMatch(owner.html, /<script>evil\(\)/);
     assert.match(owner.html, /&lt;img/);
+
+    const vacation = t.vacationReopeningEmail({
+        introMessage: '"><script>evil()</script>',
+        closingMessage: '<img src=x onerror=alert(1)>',
+        pickupLabel: "2026-09-14",
+        items: [{ name: '<img src=x onerror=alert(1)>', description: '<script>evil()</script>', priceEur: 3.5, productType: "standard" }],
+        unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=abc"
+    });
+    assert.doesNotMatch(vacation.html, /<img src=x onerror/);
+    assert.doesNotMatch(vacation.html, /<script>evil\(\)/);
+    assert.match(vacation.html, /&lt;img/);
 });

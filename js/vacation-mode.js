@@ -1,0 +1,178 @@
+/* ==========================================
+   VACATION MODE (shared, pure)
+   ==========================================
+
+   Single canonical source of truth for Vacation Mode logic that has
+   no business living in the DOM or Supabase layer, shared by:
+
+     - js/cart.js            (order-submission guard)
+     - js/menu.js             (public Menu vacation notice)
+     - js/vacation-homepage.js (homepage vacation section)
+     - js/admin-vacation.js   (admin Settings vacation panel)
+
+   `isRecipientEligible` mirrors the SQL function
+   `public.vacation_eligible_subscribers(p_cycle_id)` (see
+   supabase/migrations/20260827094500_vacation_eligible_subscribers_fn.sql)
+   field-for-field. The SQL function is the authoritative source for
+   actual sending; this is a client-side mirror used only for display
+   estimates (e.g. an admin toggling a preference in the UI before
+   saving) and must be kept in sync with it by hand if that rule ever
+   changes.
+
+   `buildMenuSnapshotKey` is used both to detect "the reopening-email
+   preview is stale because the menu changed since it was generated"
+   and, at send time, to build the actual menu content of the email --
+   it deliberately only includes items that would actually appear
+   (available === true), so an unrelated change to an unavailable/
+   archived item never falsely marks a preview stale.
+
+   This file has no dependency on the DOM or Supabase -- every function
+   here takes plain data in and returns plain data out, so it can run
+   unmodified in the browser (as a normal <script> tag, exposing
+   `window.VacationMode`) or under Node (via `require("./vacation-mode.js")`).
+   ========================================== */
+
+(function (root, factory) {
+    if (typeof module === "object" && module.exports) {
+        module.exports = factory();
+    } else {
+        root.VacationMode = factory();
+    }
+})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+    "use strict";
+
+    function toNumber(value, fallback) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : (fallback === undefined ? 0 : fallback);
+    }
+
+    function isNonEmptyString(value) {
+        return typeof value === "string" && value.trim().length > 0;
+    }
+
+    /** True while a vacation cycle is active. `statusRow` is whatever
+     *  a `.maybeSingle()` query against the public vacation_periods
+     *  columns (`id, heading, message, reopen_at, next_pickup_at`) --
+     *  or the admin's full-row query -- resolved to. null/undefined
+     *  means no active cycle. */
+    function isVacationActive(statusRow) {
+        return !!(statusRow && statusRow.id);
+    }
+
+    /**
+     * Canonical, order-independent snapshot key for "the menu as it
+     * would appear in the reopening email right now." Only items that
+     * would actually be included (available === true) participate, so
+     * archived/unavailable-item churn never falsely invalidates a
+     * generated preview.
+     */
+    function buildMenuSnapshotKey(menuItems) {
+        const rows = (menuItems || [])
+            .filter(item => item && item.available === true)
+            .map(item => ({
+                id: String(item.id),
+                name: item.name || "",
+                price: toNumber(item.price, 0),
+                description: item.description || "",
+                product_type: item.product_type || "standard"
+            }))
+            .sort((a, b) => a.id.localeCompare(b.id));
+
+        return JSON.stringify(rows);
+    }
+
+    /**
+     * Mirrors public.vacation_eligible_subscribers(p_cycle_id) exactly:
+     *   status = 'active'
+     *   AND ( pref_menu_announcements
+     *         OR (pref_reopening_alerts AND fulfilled cycle != this one) )
+     */
+    function isRecipientEligible(subscriber, cycleId) {
+        if (!subscriber || subscriber.status !== "active") {
+            return false;
+        }
+
+        if (subscriber.pref_menu_announcements === true) {
+            return true;
+        }
+
+        return !!(
+            subscriber.pref_reopening_alerts === true &&
+            subscriber.reopening_alert_fulfilled_cycle_id !== cycleId
+        );
+    }
+
+    /** Human-readable labels for whichever recipient categories a
+     *  cycle is configured to include -- used by the admin panel's
+     *  "who's this going to" summary. */
+    function describeRecipientCategories(cycle) {
+        const labels = [];
+        if (cycle && cycle.recipients_reopening_alerts) {
+            labels.push("Reopening alerts");
+        }
+        if (cycle && cycle.recipients_menu_announcements) {
+            labels.push("Menu announcements");
+        }
+        if (cycle && cycle.recipients_general_updates) {
+            labels.push("General updates");
+        }
+        return labels;
+    }
+
+    /**
+     * The full "is the reopening campaign Ready" gate -- used both to
+     * render the admin's readiness badge/reasons list and to decide
+     * whether the "Automatically send..." toggle may be turned on.
+     * Every reason string is written to be shown directly to the admin.
+     */
+    function computeReadiness(input) {
+        const {
+            reopeningEmailEnabled,
+            subject,
+            pickupAt,
+            nowMs,
+            previewMenuSnapshotKey,
+            currentMenuSnapshotKey,
+            availableMenuCount,
+            eligibleRecipientCount
+        } = input || {};
+
+        const reasons = [];
+        const now = typeof nowMs === "number" ? nowMs : Date.now();
+
+        if (!reopeningEmailEnabled) {
+            reasons.push("Reopening email is turned off for this vacation.");
+        }
+
+        if (!isNonEmptyString(subject)) {
+            reasons.push("Email subject is required.");
+        }
+
+        const pickupMs = pickupAt ? new Date(pickupAt).getTime() : NaN;
+        if (!Number.isFinite(pickupMs) || pickupMs <= now) {
+            reasons.push("Set a future pickup date and time.");
+        }
+
+        if (toNumber(availableMenuCount, 0) < 1) {
+            reasons.push("Publish at least one available menu item.");
+        }
+
+        if (!previewMenuSnapshotKey || previewMenuSnapshotKey !== currentMenuSnapshotKey) {
+            reasons.push("Preview is missing or outdated -- refresh the preview.");
+        }
+
+        if (toNumber(eligibleRecipientCount, 0) < 1) {
+            reasons.push("No eligible recipients yet.");
+        }
+
+        return { ready: reasons.length === 0, reasons };
+    }
+
+    return {
+        isVacationActive,
+        buildMenuSnapshotKey,
+        isRecipientEligible,
+        describeRecipientCategories,
+        computeReadiness
+    };
+});

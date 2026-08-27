@@ -64,3 +64,19 @@ export function weeklyCampaignKey(isoDate) {
 export function weeklyRecipientKey(campaignKey, subscriberId) {
     return `${campaignKey}:${subscriberId}`;
 }
+
+/** Keyed by the vacation cycle's own id (vacation_periods.id) --
+ * exactly one reopening campaign ever exists per vacation cycle, no
+ * matter how many times the manual "Resume Ordering & Send" button,
+ * a page reload, or the scheduled auto-resume cron invokes campaign
+ * creation: email_campaigns.campaign_key's unique constraint turns
+ * every retry after the first into a no-op "already exists" lookup. */
+export function vacationReopeningCampaignKey(cycleId) {
+    return `vacation_reopening:${cycleId}`;
+}
+
+/** One outbox row per (vacation campaign, subscriber) pair -- same
+ * shape and same guarantee as weeklyRecipientKey. */
+export function vacationReopeningRecipientKey(campaignKey, subscriberId) {
+    return `${campaignKey}:${subscriberId}`;
+}
