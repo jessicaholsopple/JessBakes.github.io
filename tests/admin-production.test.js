@@ -148,7 +148,8 @@ function loadSandbox() {
         window: {},
         console,
         CurrencyConversion: require(path.join(ROOT, "js/currency-conversion.js")),
-        SaleCalculations: require(path.join(ROOT, "js/sale-calculations.js"))
+        SaleCalculations: require(path.join(ROOT, "js/sale-calculations.js")),
+        QuantityFormat: require(path.join(ROOT, "js/quantity-format.js"))
     };
     vm.createContext(sandbox);
 

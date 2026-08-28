@@ -1600,11 +1600,13 @@ function usd(value) {
     }).format(Number(value || 0));
 }
 
+// Sourced from js/quantity-format.js (shared with Production) --
+// see that file's header comment for the exact bug this used to have
+// (a regex with no decimal-point anchor stripped a meaningful trailing
+// zero from plain integers: 680 -> "68", 170 -> "17"). Kept as a thin
+// local alias so every existing call site below is unchanged.
 function formatQuantity(value) {
-    return Number(value || 0)
-        .toFixed(2)
-        .replace(/\.00$/, "")
-        .replace(/0$/, "");
+    return QuantityFormat.formatQuantity(value);
 }
 
 function valueOrNull(value) {

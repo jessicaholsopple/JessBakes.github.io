@@ -1079,7 +1079,14 @@ function euro(x){return new Intl.NumberFormat("de-DE",{style:"currency",currency
 // BUG-23: revenue/cost/profit/margin projections report in USD; customer-
 // facing order totals (renderOrders) stay EUR via euro() above.
 function usd(x){return new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(Number(x||0));}
-function fmt(x){return Number(x||0).toFixed(2).replace(/\.00$/,"").replace(/(\.\d)0$/,"$1");}
+// Sourced from js/quantity-format.js (shared with Inventory) -- this
+// file's own implementation was already correct (its second replace
+// required a literal decimal point in the match, so it could never
+// strip a meaningful integer digit the way Inventory's old formatter
+// did), but is now the single canonical copy instead of a second,
+// separately-maintained one. Kept as a thin local alias so every
+// existing fmt(...) call site below is unchanged.
+function fmt(x){return QuantityFormat.formatQuantity(x);}
 function selectedDate(){return document.getElementById("productionDate")?.value||"";}
 function nextSunday(d){const x=new Date(d);x.setDate(x.getDate()+(7-x.getDay())%7);return x;}
 function parseDate(v){if(!v)return null;const [y,m,d]=String(v).split("-").map(Number);return y&&m&&d?new Date(y,m-1,d):null;}
