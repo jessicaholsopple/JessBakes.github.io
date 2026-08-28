@@ -576,18 +576,142 @@ test("templates: orderConfirmedEmail includes pickup date/time, and gracefully h
 
     const withLocation = t.orderConfirmedEmail({
         customerName: "Alex", orderRef: "abc123", orderType: "weekly",
-        pickupDate: "2026-08-23", pickupTime: "12:30:00", pickupLocation: "123 Bakery Lane"
+        pickupDate: "2026-08-23", pickupTime: "12:30:00", pickupLocation: "123 Bakery Lane",
+        subtotalEur: 25, usdAmount: 29
     });
     assert.match(withLocation.html, /123 Bakery Lane/);
     assert.match(withLocation.html, /12:30 PM/);
 
     const withoutLocation = t.orderConfirmedEmail({
         customerName: "Alex", orderRef: "abc123", orderType: "custom",
-        pickupDate: "2026-08-30", pickupLocation: null
+        pickupDate: "2026-08-30", pickupLocation: null,
+        subtotalEur: 25, usdAmount: 29
     });
     assert.doesNotMatch(withoutLocation.html, /null/i);
     assert.match(withoutLocation.html, /sent separately/i);
     assert.match(withoutLocation.html, /confirm the exact time/i);
+});
+
+test("templates: orderConfirmedEmail formats the pickup date customer-friendly (weekday, month, day, year), not the raw YYYY-MM-DD", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail({
+        customerName: "Alex", orderRef: "abc123", orderType: "weekly",
+        pickupDate: "2026-08-30", pickupTime: "12:30:00", pickupLocation: "123 Bakery Lane",
+        subtotalEur: 25, usdAmount: 29
+    });
+    assert.match(result.html, /Sunday, August 30, 2026/);
+    assert.match(result.text, /Sunday, August 30, 2026/);
+    assert.doesNotMatch(result.html, /2026-08-30/);
+});
+
+/* ==========================================
+   Payment Options section (Cash/Zelle/PayPal/Venmo) -- added so every
+   confirmation shows all four methods, since customers never select
+   one at checkout. See CurrencyConversion.convertEurToUsdFlooredWhole
+   for the floored-whole-dollar rule this template only formats, never
+   computes.
+   ========================================== */
+
+const PAYMENT_FIXTURE = {
+    customerName: "Alex", orderRef: "abc123", orderType: "weekly",
+    pickupDate: "2026-08-30", pickupTime: "12:30:00", pickupLocation: "123 Bakery Lane",
+    subtotalEur: 25.00, usdAmount: 29
+};
+
+test("templates: orderConfirmedEmail always shows Cash, Zelle, PayPal, and Venmo -- never a conditional single method", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
+
+    for (const label of ["Cash at pickup", "Zelle", "PayPal", "Venmo"]) {
+        assert.match(result.html, new RegExp(label));
+        assert.match(result.text, new RegExp(label));
+    }
+});
+
+test("templates: orderConfirmedEmail's payment section lists Cash, Zelle, PayPal, Venmo in that exact order", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
+
+    const order = ["Cash at pickup", "Zelle", "PayPal", "Venmo"];
+    const positions = order.map(label => result.html.indexOf(label));
+    assert.deepEqual(positions, [...positions].sort((a, b) => a - b), "HTML order");
+
+    const textPositions = order.map(label => result.text.indexOf(label));
+    assert.deepEqual(textPositions, [...textPositions].sort((a, b) => a - b), "text order");
+});
+
+test("templates: orderConfirmedEmail shows the order total and the identical floored USD amount for Zelle, PayPal, and Venmo", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
+
+    assert.match(result.html, /Order total:<\/strong> €25\.00/);
+    assert.match(result.text, /Order total: €25\.00/);
+
+    // Cash shows the EUR total, not a USD figure.
+    assert.match(result.html, /Cash at pickup:<\/strong> €25\.00/);
+
+    // All three electronic methods show the exact same $29 USD.
+    const usdMatches = result.html.match(/\$29 USD/g) || [];
+    assert.equal(usdMatches.length, 3, "Zelle, PayPal, and Venmo must each show $29 USD");
+    assert.doesNotMatch(result.html, /\$30\b|\$28\b/);
+});
+
+test("templates: orderConfirmedEmail includes the exact-change notice under Cash", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
+    assert.match(result.html, /bring exact change/i);
+    assert.match(result.text, /bring exact change/i);
+});
+
+test("templates: orderConfirmedEmail preserves the Zelle number, PayPal handle, and Venmo handle exactly, with no invented URL", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
+
+    assert.match(result.html, /4434700714/);
+    assert.match(result.text, /4434700714/);
+    assert.match(result.html, /@jessicaholsopple/);
+    assert.match(result.text, /@jessicaholsopple/);
+    assert.match(result.html, /@jessgodi/);
+    assert.match(result.text, /@jessgodi/);
+
+    // No fabricated paypal.me/venmo.com links.
+    assert.doesNotMatch(result.html, /paypal\.me|venmo\.com/);
+});
+
+test("templates: orderConfirmedEmail's contact note appears with a correct tel: link in HTML and a readable number in plain text", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
+
+    assert.match(result.html, /questions or concerns/i);
+    assert.match(result.html, /href="tel:\+14434700714"/);
+    assert.match(result.html, /\+1 \(443\) 470-0714/);
+
+    assert.match(result.text, /questions or concerns/i);
+    assert.match(result.text, /\+1 \(443\) 470-0714/);
+    assert.doesNotMatch(result.text, /tel:/);
+});
+
+test("templates: orderConfirmedEmail's content stays in the required order: heading, greeting, reference, pickup date/time, location, payment, contact", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
+
+    const anchors = [
+        "confirmed", "Alex", "abc123", "Sunday, August 30, 2026",
+        "12:30 PM", "123 Bakery Lane", "Payment Options", "Zelle",
+        "questions or concerns"
+    ];
+    const positions = anchors.map(a => result.html.indexOf(a));
+    assert.ok(positions.every(p => p !== -1), "every anchor must be present");
+    assert.deepEqual(positions, [...positions].sort((a, b) => a - b), "content must appear in the intended order");
+});
+
+test("templates: orderConfirmedEmail's payment section never leaks internal cost/profit vocabulary", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
+    for (const forbidden of ["food_cost", "packaging_cost", "profit", "wholesale", "exchange_rate", "ingredient_cost"]) {
+        assert.doesNotMatch(result.html.toLowerCase(), new RegExp(forbidden));
+        assert.doesNotMatch(result.text.toLowerCase(), new RegExp(forbidden));
+    }
 });
 
 test("templates: orderCancelledEmail is brief and includes a Contact link", async () => {

@@ -366,3 +366,54 @@ test("21. isValidRate accepts positive finite numbers and rejects everything els
     assert.equal(CurrencyConversion.isValidRate("1.15"), true); // Number("1.15") is finite
     assert.equal(CurrencyConversion.isValidRate("abc"), false);
 });
+
+/* ==========================================
+   convertEurToUsdFlooredWhole -- order-confirmation payment amounts
+   (Zelle/PayPal/Venmo). Always a whole dollar, always rounded DOWN --
+   never the cent-precision rounding convertEurToUsd uses for
+   accounting/Analytics.
+   ========================================== */
+
+test("22. the exact spec example: €25 at a $29.13 rate displays $29, not $29.13 or $30", () => {
+    // 25 * (29.13 / 25) reproduces a live rate that converts €25 to
+    // exactly $29.13 before flooring.
+    const rate = 29.13 / 25;
+    assert.equal(CurrencyConversion.convertEurToUsdFlooredWhole(25, rate), 29);
+});
+
+test("23. $29.99, $29.13, and $29.00 all floor to $29", () => {
+    assert.equal(CurrencyConversion.convertEurToUsdFlooredWhole(100, 0.2999), 29); // -> 29.99
+    assert.equal(CurrencyConversion.convertEurToUsdFlooredWhole(100, 0.2913), 29); // -> 29.13
+    assert.equal(CurrencyConversion.convertEurToUsdFlooredWhole(100, 0.29), 29);   // -> 29.00 exactly
+});
+
+test("24. never rounds UP to the next dollar, however close the cents are", () => {
+    assert.equal(CurrencyConversion.convertEurToUsdFlooredWhole(1, 29.999), 29);
+    assert.notEqual(CurrencyConversion.convertEurToUsdFlooredWhole(1, 29.999), 30);
+});
+
+test("25. float noise landing a hair under a true whole dollar still floors to that whole dollar (decimal-safety)", () => {
+    // 25 * 1.16 = 29.000000000000004 in raw IEEE-754 float math --
+    // convertEurToUsdFlooredWhole must still land on 29, not 28.
+    assert.equal(CurrencyConversion.convertEurToUsdFlooredWhole(25, 1.16), 29);
+});
+
+test("26. returns null (never a guessed amount) for a missing or invalid rate", () => {
+    assert.equal(CurrencyConversion.convertEurToUsdFlooredWhole(25, null), null);
+    assert.equal(CurrencyConversion.convertEurToUsdFlooredWhole(25, undefined), null);
+    assert.equal(CurrencyConversion.convertEurToUsdFlooredWhole(25, 0), null);
+    assert.equal(CurrencyConversion.convertEurToUsdFlooredWhole(25, -1.1), null);
+});
+
+test("27. Zelle and PayPal (and Venmo) must display the identical amount for the same order -- one conversion, reused, not three separate lookups", () => {
+    const rate = 1.1652;
+    const a = CurrencyConversion.convertEurToUsdFlooredWhole(25, rate);
+    const b = CurrencyConversion.convertEurToUsdFlooredWhole(25, rate);
+    const c = CurrencyConversion.convertEurToUsdFlooredWhole(25, rate);
+    assert.equal(a, b);
+    assert.equal(b, c);
+});
+
+test("28. a zero-value order floors to exactly $0, not null", () => {
+    assert.equal(CurrencyConversion.convertEurToUsdFlooredWhole(0, 1.15), 0);
+});

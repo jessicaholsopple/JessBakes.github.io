@@ -83,6 +83,35 @@
     }
 
     /**
+     * EUR -> USD for an order-confirmation PAYMENT amount (Zelle/PayPal/
+     * Venmo) -- always a WHOLE dollar, rounded DOWN, never rounded to the
+     * cent like convertEurToUsd/computeUsdSaleFigures (those are for
+     * accounting/Analytics, this is for "what to actually request from a
+     * customer"). $29.99, $29.13, and $29.00 all become exactly $29.
+     *
+     * Deliberately floors the RAW eurAmount*rate product directly rather
+     * than routing through convertEurToUsd's cent-rounding first: cent-
+     * rounding a value like 29.996 to 30.00 before flooring would wrongly
+     * produce $30, when the true floored dollar amount is $29 -- "round
+     * down" must mean down from the actual amount, not from an
+     * intermediate value already rounded UP past a dollar boundary.
+     *
+     * Decimal-safe: a tiny epsilon guards the floor against float noise
+     * from the multiplication (e.g. a true 29.00 landing a hair under as
+     * 28.999999999999996) -- far smaller than a cent, so it can never
+     * push a genuine 29.99 up to 30.
+     *
+     * Returns null (never a guessed amount) if the rate is missing or
+     * invalid -- callers must not display or send a payment amount in
+     * that case.
+     */
+    function convertEurToUsdFlooredWhole(eurAmount, rate) {
+        if (!isValidRate(rate)) return null;
+        const raw = toNumber(eurAmount) * Number(rate);
+        return Math.floor(raw + 1e-9);
+    }
+
+    /**
      * Sale-level USD figures. total_cost is already USD-denominated (see
      * the confirmed rule above) -- only revenue is converted.
      */
@@ -275,6 +304,7 @@
         roundCents,
         isValidRate,
         convertEurToUsd,
+        convertEurToUsdFlooredWhole,
         computeUsdSaleFigures,
         computeUsdLineFigures,
         applyRateToSaleLines,

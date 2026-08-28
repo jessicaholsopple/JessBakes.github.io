@@ -45,6 +45,19 @@ const LOGO_WIDTH = 320;
 const LOGO_HEIGHT = 84; // matches the cropped asset's real 682:180 aspect ratio at 320px wide
 const SITE_URL = "https://jessbakessourdough.com";
 
+// Order-confirmation payment options. Customers never select a payment
+// method at checkout (there is no such field), so every confirmation
+// email shows all four ways to pay -- never a conditional single
+// method. These identifiers are fixed, owner-provided values (not an
+// admin-editable setting, matching the existing pickup-location-only
+// scope of Admin Settings) -- preserve them exactly if this file is
+// ever touched again.
+const ZELLE_NUMBER = "4434700714";
+const PAYPAL_HANDLE = "@jessicaholsopple";
+const VENMO_HANDLE = "@jessgodi";
+const CONTACT_PHONE_DISPLAY = "+1 (443) 470-0714";
+const CONTACT_PHONE_TEL = "tel:+14434700714";
+
 function esc(value) {
     return String(value ?? "")
         .replaceAll("&", "&amp;")
@@ -57,6 +70,15 @@ function esc(value) {
 function eur(amount) {
     const n = Number(amount) || 0;
     return `€${n.toFixed(2)}`;
+}
+
+/** A payment-section USD amount is always a whole, floored dollar
+ * figure by the time it reaches this template (see
+ * CurrencyConversion.convertEurToUsdFlooredWhole / the
+ * confirmation_usd_amount column snapshotted at order-confirm time) --
+ * this only ever formats, never rounds. */
+function usd(amount) {
+    return `$${Math.trunc(Number(amount) || 0)} USD`;
 }
 
 /** "YYYY-MM-DD" -> "Sunday" (whatever weekday that specific date
@@ -73,6 +95,27 @@ function weekdayNameFromDateString(dateStr) {
     const d = new Date(`${dateStr}T00:00:00`);
     if (Number.isNaN(d.getTime())) return "";
     return d.toLocaleDateString("en-US", { weekday: "long" });
+}
+
+/** "YYYY-MM-DD" -> "Sunday, August 30, 2026" -- the customer-friendly
+ * date shown in the confirmation email, in place of the raw DB format.
+ * Mirrors js/weekly-schedule.js's own formatFullDate() (same weekday/
+ * month/day/year formatting) -- kept as a small local copy rather than
+ * an import since this file is a dependency-free .mjs bundled straight
+ * into Deno Edge Functions, while weekly-schedule.js is a browser/Node
+ * UMD module; duplicating this one formatting call is safer than wiring
+ * cross-runtime module interop for it. Not a re-derivation of the
+ * scheduling RULE itself (see weekly-schedule.js's own
+ * compute_weekly_pickup_from for that) -- just formatting an
+ * already-decided date. Returns the raw string unchanged if it isn't a
+ * plain YYYY-MM-DD date, so a malformed value is still shown rather
+ * than silently disappearing. */
+function formatFullDate(dateStr) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ""));
+    if (!match) return dateStr || "";
+    const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    if (Number.isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 }
 
 /** "12:30:00" / "12:30" -> "12:30 PM". Returns "" for anything invalid
@@ -271,13 +314,30 @@ ${textFooter(["Contact: " + SITE_URL + "/contact.html", "Privacy: " + SITE_URL +
 
 /* ============================
    2) Order confirmed
+
+   Payment section (added 2026-08-28): customers never choose a payment
+   method at checkout, so all four options -- Cash, Zelle, PayPal,
+   Venmo -- are always shown together, never conditionally narrowed to
+   one. Cash stays in EUR (what the customer actually agreed to pay);
+   Zelle/PayPal/Venmo show the SAME pre-computed, already-floored USD
+   figure (usdAmount) -- this template only formats it, it never
+   converts or rounds anything itself. usdAmount/subtotalEur are the
+   snapshot taken once at order-confirm time (see
+   CurrencyConversion.convertEurToUsdFlooredWhole and the
+   confirmation_usd_amount/confirmation_exchange_rate order columns) --
+   so re-rendering this exact template later (a "Resend" retry) always
+   reproduces the same amount the customer originally saw, never a
+   freshly re-converted one.
    ============================ */
 export function orderConfirmedEmail({
-    customerName, orderRef, orderType, pickupDate, pickupTime, pickupLocation
+    customerName, orderRef, orderType, pickupDate, pickupTime, pickupLocation,
+    subtotalEur, usdAmount
 }) {
     const timeLine = orderType === "weekly"
         ? (formatTime12h(pickupTime) || "12:30 PM")
         : "I'll confirm the exact time with you directly.";
+
+    const friendlyDate = formatFullDate(pickupDate);
 
     const locationHtml = pickupLocation
         ? `<p style="margin:12px 0 0 0;"><strong>Pickup location:</strong> ${esc(pickupLocation)}</p>`
@@ -286,13 +346,47 @@ export function orderConfirmedEmail({
         ? `Pickup location: ${pickupLocation}`
         : "Pickup location details will be sent separately.";
 
+    const paymentHtml = `
+<h2 style="font-size:17px;margin:24px 0 10px 0;color:${BURGUNDY};">Payment Options</h2>
+<p style="margin:0 0 4px 0;"><strong>Order total:</strong> ${eur(subtotalEur)}</p>
+<p style="margin:0 0 16px 0;">You may choose one of the following payment methods. Electronic payments may be sent before pickup or at pickup.</p>
+<p style="margin:0 0 14px 0;"><strong>Cash at pickup:</strong> ${eur(subtotalEur)}<br>Please bring exact change. I typically don't have change available unless another customer also pays in cash.</p>
+<p style="margin:0 0 14px 0;"><strong>Zelle:</strong> ${usd(usdAmount)}<br>Send payment to: <strong>${esc(ZELLE_NUMBER)}</strong></p>
+<p style="margin:0 0 14px 0;"><strong>PayPal:</strong> ${usd(usdAmount)}<br>Send payment to: <strong>${esc(PAYPAL_HANDLE)}</strong></p>
+<p style="margin:0;"><strong>Venmo:</strong> ${usd(usdAmount)}<br>Send payment to: <strong>${esc(VENMO_HANDLE)}</strong></p>
+`;
+
+    const paymentText = `Payment Options
+
+Order total: ${eur(subtotalEur)}
+
+You may choose one of the following payment methods. Electronic payments may be sent before pickup or at pickup.
+
+Cash at pickup: ${eur(subtotalEur)}
+Please bring exact change. I typically don't have change available unless another customer also pays in cash.
+
+Zelle: ${usd(usdAmount)}
+Send payment to: ${ZELLE_NUMBER}
+
+PayPal: ${usd(usdAmount)}
+Send payment to: ${PAYPAL_HANDLE}
+
+Venmo: ${usd(usdAmount)}
+Send payment to: ${VENMO_HANDLE}
+`;
+
+    const contactHtml = `<p style="margin:20px 0 0 0;">If you have any questions or concerns, please reach out to me at <a href="${CONTACT_PHONE_TEL}" style="color:${BURGUNDY};">${esc(CONTACT_PHONE_DISPLAY)}</a>.</p>`;
+    const contactText = `If you have any questions or concerns, please reach out to me at ${CONTACT_PHONE_DISPLAY}.`;
+
     const bodyHtml = `
 <h1 style="font-size:20px;margin:0 0 4px 0;">Your order is confirmed! 🎉</h1>
 <p style="margin:0 0 4px 0;">Hi ${esc(customerName)},</p>
 <p style="margin:0 0 16px 0;">Reference: <strong>#${esc(orderRef)}</strong></p>
-<p style="margin:0;"><strong>Pickup date:</strong> ${esc(pickupDate)}</p>
+<p style="margin:0;"><strong>Pickup date:</strong> ${esc(friendlyDate)}</p>
 <p style="margin:4px 0 0 0;"><strong>Pickup time:</strong> ${esc(timeLine)}</p>
 ${locationHtml}
+${paymentHtml}
+${contactHtml}
 `;
 
     const text = `Your order is confirmed!
@@ -301,9 +395,12 @@ Hi ${customerName},
 
 Reference: #${orderRef}
 
-Pickup date: ${pickupDate}
+Pickup date: ${friendlyDate}
 Pickup time: ${timeLine}
 ${locationText}
+
+${paymentText}
+${contactText}
 ${textFooter(["Contact: " + SITE_URL + "/contact.html", "Privacy: " + SITE_URL + "/privacy.html"])}`;
 
     return {

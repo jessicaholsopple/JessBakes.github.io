@@ -615,15 +615,71 @@ async function updateOrderStatus(orderId, status) {
     const { data: currentOrder } =
         await supabaseClient
             .from("orders")
-            .select("status")
+            .select("status, subtotal")
             .eq("id", orderId)
             .maybeSingle();
 
     const previousStatus = currentOrder?.status;
 
+    const updatePayload = { status };
+
+    // Order-confirmation payment section (Cash/Zelle/PayPal/Venmo): the
+    // EUR->USD rate and the resulting floored whole-dollar amount are
+    // resolved and SNAPSHOTTED here, once, at the exact moment an order
+    // transitions into "confirmed" -- the same moment the DB trigger
+    // (enqueue_order_status_email) enqueues the confirmation email --
+    // and saved onto the order itself. This is the SAME rate-resolution
+    // pattern createSaleFromOrder already uses at sale completion
+    // (js/currency-conversion.js), so a cached/live/manually-entered
+    // rate for today is never looked up twice. Every future render of
+    // this email (including an admin's "Resend" of a failed send) reads
+    // these saved columns instead of re-resolving -- so resending can
+    // never show a different amount than what the customer originally
+    // saw, even if today's rate has since changed.
+    //
+    // Gated on the actual transition (mirrors the DB trigger's own
+    // `old.status is distinct from 'confirmed'` guard) so a no-op
+    // re-click never re-prompts for a rate.
+    if (status === "confirmed" && previousStatus !== "confirmed") {
+
+        const todayStr = new Date().toISOString().split("T")[0];
+
+        const rateEntry = await CurrencyConversion.resolveExchangeRate(todayStr, {
+            getCachedRate: getCachedExchangeRate,
+            fetchLiveRate: CurrencyConversion.createFrankfurterFetcher(),
+            promptManualRate: async (dateStr) => promptManualExchangeRate(dateStr),
+            saveRate: saveExchangeRate
+        });
+
+        if (!rateEntry) {
+
+            alert(
+                "Could not determine today's EUR→USD exchange rate, and no manual rate was entered. This order was NOT confirmed — try again once a rate is available."
+            );
+            return;
+
+        }
+
+        const usdAmount = CurrencyConversion.convertEurToUsdFlooredWhole(currentOrder.subtotal, rateEntry.rate);
+
+        if (usdAmount === null) {
+
+            alert(
+                "Could not calculate the USD payment amount for this order. This order was NOT confirmed — try again."
+            );
+            return;
+
+        }
+
+        updatePayload.confirmation_exchange_rate = rateEntry.rate;
+        updatePayload.confirmation_exchange_rate_date = rateEntry.rate_date;
+        updatePayload.confirmation_usd_amount = usdAmount;
+
+    }
+
     const { error } = await supabaseClient
         .from("orders")
-        .update({ status })
+        .update(updatePayload)
         .eq("id", orderId);
 
     if (error) {

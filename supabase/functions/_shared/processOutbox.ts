@@ -44,7 +44,7 @@ async function renderForRow(adminClient: any, row: any) {
     if (row.email_type === "order_received" || row.email_type === "order_confirmed" || row.email_type === "order_cancelled" || row.email_type === "admin_new_order") {
         const { data: order } = await adminClient
             .from("orders")
-            .select("id, customer_name, customer_email, customer_phone, preferred_contact, order_type, pickup_date, pickup_time, notes, subtotal, created_at")
+            .select("id, customer_name, customer_email, customer_phone, preferred_contact, order_type, pickup_date, pickup_time, notes, subtotal, created_at, confirmation_exchange_rate, confirmation_usd_amount")
             .eq("id", row.recipient_ref_id)
             .maybeSingle();
 
@@ -110,6 +110,20 @@ async function renderForRow(adminClient: any, row: any) {
                 .limit(1)
                 .maybeSingle();
 
+            // The EUR->USD rate and floored USD payment amount are
+            // snapshotted onto the order itself at the moment it's
+            // confirmed (js/admin-orders.js's updateOrderStatus, using
+            // the same CurrencyConversion.resolveExchangeRate path as
+            // sale completion) -- never recomputed here, so a later
+            // "Resend" of this exact row always reproduces the same
+            // amount the customer originally saw. If a row somehow
+            // predates that snapshot (e.g. a legacy failed row from
+            // before this feature existed), there is no trustworthy
+            // amount to show -- skip rather than guess or send $0/NaN.
+            if (order.confirmation_usd_amount === null || order.confirmation_usd_amount === undefined) {
+                return null;
+            }
+
             return {
                 from: ORDERS_FROM,
                 ...orderConfirmedEmail({
@@ -118,7 +132,9 @@ async function renderForRow(adminClient: any, row: any) {
                     orderType: order.order_type,
                     pickupDate: order.pickup_date,
                     pickupTime: order.pickup_time,
-                    pickupLocation: bakerySettings?.pickup_location || null
+                    pickupLocation: bakerySettings?.pickup_location || null,
+                    subtotalEur: order.subtotal,
+                    usdAmount: order.confirmation_usd_amount
                 })
             };
         }
