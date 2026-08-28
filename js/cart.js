@@ -627,6 +627,8 @@ function ensureCheckoutModal() {
                     I'll review it and contact you shortly.
                 </p>
 
+                <p id="checkoutSuccessPickup"></p>
+
                 <button
                     class="primary-btn"
                     onclick="closeCheckoutModal()">
@@ -649,33 +651,79 @@ function ensureCheckoutModal() {
    ORDER TYPE UI
 ========================================== */
 
-function getNextPickupDate() {
+/* ==========================================
+   WEEKLY PICKUP SCHEDULE
 
-    const today = new Date();
+   Every proposed pickup date shown to the customer -- both the initial
+   "Your Pickup" card and the pre-submit re-check -- comes from the
+   preview_weekly_pickup Supabase RPC, which computes the answer from
+   the DATABASE clock and the currently saved schedule (never the
+   customer's device clock/timezone, never a cached value: every call
+   here is a fresh network request). The actually-saved order's
+   pickup_date/pickup_time is independently enforced server-side too
+   (the enforce_weekly_pickup_schedule trigger on orders -- see
+   supabase/migrations/20260828100000_weekly_pickup_schedule.sql) --
+   this module's job is only to show the customer an accurate preview
+   and to catch the "cutoff crossed while checkout was open" case
+   before submitting, never to be the actual authority for what gets
+   saved.
+   ========================================== */
 
-    const day = today.getDay();
+// The most recently fetched preview, used only to detect "the cutoff
+// moved since we last showed this" immediately before submit -- see
+// submitOrder(). Never used as the value actually sent to the server.
+let lastPickupPreview = null;
 
-    let daysUntilSunday;
+async function fetchPickupPreview() {
 
-    if (day >= 5) {
+    const { data, error } = await supabaseClient.rpc("preview_weekly_pickup");
 
-        daysUntilSunday = 14 - day;
-
-    } else {
-
-        daysUntilSunday = 7 - day;
-
+    if (error) {
+        console.error(error);
+        return null;
     }
 
-    const pickup = new Date(today);
-
-    pickup.setDate(today.getDate() + daysUntilSunday);
-
-    return pickup;
+    return Array.isArray(data) ? data[0] : data;
 
 }
 
-function updatePickupInfo() {
+function renderPickupCard(preview) {
+
+    const schedule = {
+        pickupWeekday: preview.pickup_weekday,
+        cutoffWeekday: preview.cutoff_weekday,
+        cutoffTime: preview.cutoff_time
+    };
+
+    return `
+
+        <strong>Weekly ${escapeHtml(WeeklySchedule.weekdayName(preview.pickup_weekday))} Pickup</strong>
+
+        <p>
+            ${escapeHtml(WeeklySchedule.describeScheduleRuleShort(schedule))}
+        </p>
+
+        <div class="pickup-date">
+
+            <h4>Your Pickup</h4>
+
+            <p>
+                ${escapeHtml(WeeklySchedule.formatFullDate(preview.pickup_date))}
+                <br>
+                ${escapeHtml(WeeklySchedule.formatTime12h(preview.pickup_time))}
+            </p>
+
+            <p>
+                The exact pickup location will be sent to you once your order is confirmed.
+            </p>
+
+        </div>
+
+    `;
+
+}
+
+async function updatePickupInfo() {
 
     const box = document.getElementById("pickupInfo");
 
@@ -711,69 +759,24 @@ function updatePickupInfo() {
 
     }
 
-    const pickup = getNextPickupDate();
+    box.innerHTML = `<p>Checking the current pickup schedule…</p>`;
 
-    box.innerHTML = `
+    const preview = await fetchPickupPreview();
 
-        <strong>Weekly Sunday Pickup</strong>
+    // Vacation Mode (or any other transient error) could make this fail
+    // -- never leave the checkout showing a stale or fabricated date.
+    if (!preview) {
+        box.innerHTML = `<p>Unable to determine the next pickup date right now. Please close and reopen checkout, or try again in a moment.</p>`;
+        return;
+    }
 
-        <p>
+    lastPickupPreview = preview;
 
-            Orders placed <strong>Monday–Thursday</strong>
-
-            are scheduled for the upcoming Sunday.
-
-        </p>
-
-        <p>
-
-            Orders placed <strong>Friday–Sunday</strong>
-
-            are automatically scheduled for the
-
-            following Sunday while dough is being
-
-            prepared for the current bake.
-
-        </p>
-
-        <div class="pickup-date">
-
-            <h4>Your Pickup</h4>
-
-            <p>
-
-                ${pickup.toLocaleDateString("en-US",{
-
-                    weekday:"long",
-
-                    month:"long",
-
-                    day:"numeric",
-
-                    year:"numeric"
-
-                })}
-
-                <br>
-
-                12:30 PM
-
-            </p>
-
-            <p>
-
-                The exact pickup location will be sent to you once your order is confirmed.
-
-            </p>
-
-        </div>
-
-    `;
+    box.innerHTML = renderPickupCard(preview);
 
 }
 
-function toggleCustomOrderDetails() {
+async function toggleCustomOrderDetails() {
     const orderType = document.getElementById("orderType").value;
     const detailsGroup = document.getElementById("customOrderDetailsGroup");
 
@@ -783,7 +786,7 @@ function toggleCustomOrderDetails() {
         detailsGroup.style.display = "none";
         document.getElementById("customOrderDetails").value = "";
     }
-   updatePickupInfo();
+   await updatePickupInfo();
 }
 
 
@@ -845,8 +848,7 @@ async function openCheckoutModal() {
     document.getElementById("checkoutSuccess").style.display = "none";
 
     renderCheckoutSummary();
-    toggleCustomOrderDetails();
-    updatePickupInfo();
+    await toggleCustomOrderDetails();
 }
 
 function closeCheckoutModal() {
@@ -854,7 +856,6 @@ function closeCheckoutModal() {
     document.getElementById("checkoutForm").reset();
 
    toggleCustomOrderDetails();
-   updatePickupInfo();
 }
 
 /* ==========================================
@@ -983,54 +984,111 @@ async function submitOrder(event) {
         return;
     }
 
-    let pickup_date = null;
     let event_date = null;
+    let notes = custom_details;
 
-if (order_type === "weekly") {
+    if (order_type === "weekly") {
 
-    pickup_date = getNextPickupDate()
-        .toISOString()
-        .split("T")[0];
+        // Recalculate against the database clock immediately before
+        // creating the order -- never trust whatever was shown when
+        // checkout was first opened (the cutoff may have passed in the
+        // meantime), the customer's device clock/timezone, or any
+        // cached value. This is a genuinely fresh network request every
+        // time submitOrder runs.
+        const fresh = await fetchPickupPreview();
 
-} else {
+        if (!fresh) {
+            alert("Unable to confirm your pickup date right now. Please try again.");
 
-    event_date =
-        document.getElementById("eventDate").value;
+            submitButton.disabled = false;
+            submitButton.textContent = "Submit Order";
 
-    // Required because pickup_date cannot be NULL.
-    // Use the event date as the pickup date.
-    pickup_date = event_date;
+            return;
+        }
 
-}
+        const stale =
+            !lastPickupPreview ||
+            fresh.pickup_date !== lastPickupPreview.pickup_date ||
+            fresh.pickup_time !== lastPickupPreview.pickup_time;
 
-    const notes =
-        order_type === "weekly"
-            ? "Weekly Sunday Pickup"
-            : custom_details;
+        if (stale) {
 
-    const orderId = crypto.randomUUID();
+            // The cutoff crossed (or something else changed the
+            // schedule) while checkout was open. Never submit the order
+            // for the date that was shown a moment ago -- update the
+            // card to the new authoritative date, explain what
+            // happened, and require the customer to review and click
+            // Submit again. No orders/order_items row is created on
+            // this attempt.
+            lastPickupPreview = fresh;
+            document.getElementById("pickupInfo").innerHTML = renderPickupCard(fresh);
 
-    const { error } = await supabaseClient
-        .from("orders")
-        .insert({
-    id: orderId,
+            alert(
+                "The order cutoff passed while this page was open, so your pickup date just changed to " +
+                WeeklySchedule.formatFullDate(fresh.pickup_date) +
+                ". Please review your updated pickup date above and click Submit Order again to confirm."
+            );
 
-    customer_name,
-    customer_email,
-    customer_phone,
-    preferred_contact,
+            submitButton.disabled = false;
+            submitButton.textContent = "Submit Order";
 
-    order_type,
+            return;
 
-    pickup_date,
-    event_date,
+        }
 
-    notes,
+        notes = `Weekly ${WeeklySchedule.weekdayName(fresh.pickup_weekday)} Pickup`;
 
-    subtotal: getSubtotal(),
+    } else {
 
-    status: "pending"
-});
+        event_date =
+            document.getElementById("eventDate").value;
+
+    }
+
+    const items = cart.map(item => ({
+
+        menu_item_id:
+            item.type === "builder"
+                ? null
+                : item.id,
+
+        item_name: item.name,
+
+        quantity: item.quantity,
+
+        price_at_purchase: item.price,
+
+        line_total:
+            item.price * item.quantity,
+
+        builder_details:
+            item.type === "builder"
+                ? {
+                    builder_group: item.builder_group,
+                    selections: item.selections
+                }
+                : null
+
+    }));
+
+    // One atomic call: the pickup_date/pickup_time actually saved for a
+    // weekly order is computed authoritatively server-side (see
+    // enforce_weekly_pickup_schedule in the migration) from the exact
+    // same database clock fetchPickupPreview() just checked above --
+    // never from anything this function sends. Both the order and every
+    // order_items row are created in one transaction, so a failure
+    // partway through can never leave a headless order with no items.
+    const { data: order, error } = await supabaseClient.rpc("submit_order", {
+        p_customer_name: customer_name,
+        p_customer_email: customer_email,
+        p_customer_phone: customer_phone,
+        p_preferred_contact: preferred_contact,
+        p_order_type: order_type,
+        p_event_date: event_date,
+        p_notes: notes,
+        p_subtotal: getSubtotal(),
+        p_items: items
+    });
 
     if (error) {
         console.error(error);
@@ -1042,49 +1100,22 @@ if (order_type === "weekly") {
         return;
     }
 
-    const items = cart.map(item => ({
-
-    order_id: orderId,
-
-    menu_item_id:
-        item.type === "builder"
-            ? null
-            : item.id,
-
-    item_name: item.name,
-
-    quantity: item.quantity,
-
-    price_at_purchase: item.price,
-
-    line_total:
-        item.price * item.quantity,
-
-    builder_details:
-    item.type === "builder"
-        ? {
-            builder_group: item.builder_group,
-            selections: item.selections
-        }
-        : null
-
-}));
-
-    const { error: itemError } = await supabaseClient
-        .from("order_items")
-        .insert(items);
-
-    if (itemError) {
-        console.error(itemError);
-        alert(itemError.message);
-
-        submitButton.disabled = false;
-        submitButton.textContent = "Submit Order";
-
-        return;
-    }
-
+    lastPickupPreview = null;
     clearCart();
+
+    // Confirms the saved order matches exactly what the customer just
+    // reviewed and submitted -- reads back the authoritative
+    // pickup_date/pickup_time this same submit_order call actually
+    // wrote, not anything computed client-side. Defensively unwraps in
+    // case PostgREST returns a single-row RPC result as a 1-element
+    // array rather than a bare object.
+    const orderRow = Array.isArray(order) ? order[0] : order;
+    const pickupNotice = document.getElementById("checkoutSuccessPickup");
+    if (pickupNotice) {
+        pickupNotice.textContent = (orderRow && orderRow.order_type === "weekly" && orderRow.pickup_date)
+            ? `Pickup: ${WeeklySchedule.formatFullDate(orderRow.pickup_date)}, ${WeeklySchedule.formatTime12h(orderRow.pickup_time)}`
+            : "";
+    }
 
     document.getElementById("checkoutForm").reset();
     document.getElementById("customOrderDetailsGroup").style.display = "none";

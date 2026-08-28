@@ -59,6 +59,35 @@ function eur(amount) {
     return `€${n.toFixed(2)}`;
 }
 
+/** "YYYY-MM-DD" -> "Sunday" (whatever weekday that specific date
+ * actually falls on). Used instead of a hardcoded "Sunday" so these
+ * emails automatically say the right day if the weekly pickup weekday
+ * is ever changed in Admin Settings -- the stored pickup_date already
+ * reflects whichever weekday was configured when the order was placed,
+ * this just names it. Deliberately NOT a re-derivation of the
+ * scheduling RULE itself (see js/weekly-schedule.js /
+ * compute_weekly_pickup_from for the one canonical algorithm) -- just
+ * formatting an already-decided date, safe to keep local and simple. */
+function weekdayNameFromDateString(dateStr) {
+    if (!dateStr) return "";
+    const d = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-US", { weekday: "long" });
+}
+
+/** "12:30:00" / "12:30" -> "12:30 PM". Returns "" for anything invalid
+ * -- callers fall back to a generic line rather than showing a blank
+ * time. */
+function formatTime12h(timeStr) {
+    const match = /^(\d{1,2}):(\d{2})/.exec(String(timeStr || ""));
+    if (!match) return "";
+    const hour = Number(match[1]);
+    const minute = match[2];
+    const period = hour >= 12 ? "PM" : "AM";
+    const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+    return `${hour12}:${minute} ${period}`;
+}
+
 /** Escapes then converts admin-authored freeform text into safe
  * paragraph/line-break HTML -- blank lines become paragraph breaks,
  * single newlines become <br>. No tag other than <p>/<br> is ever
@@ -179,14 +208,17 @@ function itemsTextListDetailed(items) {
    ============================ */
 export function orderReceivedEmail({
     customerName, orderRef, items, subtotalEur,
-    orderType, pickupDate, specialInstructions
+    orderType, pickupDate, pickupTime, specialInstructions
 }) {
+    const weeklyPickupLabel = `Weekly ${weekdayNameFromDateString(pickupDate)} pickup`;
+    const timeLabel = formatTime12h(pickupTime);
+
     const pickupLine = orderType === "weekly"
-        ? `Weekly Sunday pickup — requested for <strong>${esc(pickupDate)}</strong>, 12:30 PM.`
+        ? `${weeklyPickupLabel} — requested for <strong>${esc(pickupDate)}</strong>${timeLabel ? `, ${esc(timeLabel)}` : ""}.`
         : `Custom order — requested for <strong>${esc(pickupDate)}</strong>. I'll confirm the exact time with you directly.`;
 
     const pickupLineText = orderType === "weekly"
-        ? `Weekly Sunday pickup — requested for ${pickupDate}, 12:30 PM.`
+        ? `${weeklyPickupLabel} — requested for ${pickupDate}${timeLabel ? `, ${timeLabel}` : ""}.`
         : `Custom order — requested for ${pickupDate}. I'll confirm the exact time with you directly.`;
 
     const notesHtml = specialInstructions
@@ -241,10 +273,10 @@ ${textFooter(["Contact: " + SITE_URL + "/contact.html", "Privacy: " + SITE_URL +
    2) Order confirmed
    ============================ */
 export function orderConfirmedEmail({
-    customerName, orderRef, orderType, pickupDate, pickupLocation
+    customerName, orderRef, orderType, pickupDate, pickupTime, pickupLocation
 }) {
     const timeLine = orderType === "weekly"
-        ? "12:30 PM"
+        ? (formatTime12h(pickupTime) || "12:30 PM")
         : "I'll confirm the exact time with you directly.";
 
     const locationHtml = pickupLocation
@@ -526,11 +558,11 @@ ${textFooter([
    ============================ */
 export function adminNewOrderEmail({
     customerName, customerEmail, customerPhone, preferredContact,
-    orderRef, orderType, pickupDate, items, subtotalEur,
+    orderRef, orderType, pickupDate, pickupTime, items, subtotalEur,
     specialInstructions, submittedAt
 }) {
     const timeLine = orderType === "weekly"
-        ? "12:30 PM (weekly Sunday pickup)"
+        ? `${formatTime12h(pickupTime) || "12:30 PM"} (weekly ${weekdayNameFromDateString(pickupDate)} pickup)`
         : "Not yet set -- confirm the exact time with the customer.";
 
     const orderTypeLabel = orderType === "weekly" ? "Weekly" : "Custom";

@@ -35,8 +35,10 @@ function read(relPath) {
  *  so a test can assert the guard never touches ballot/order tables. */
 function makeSupabaseClient(vacationRow) {
     const callLog = [];
+    const rpcCalls = [];
     return {
         callLog,
+        rpcCalls,
         from(table) {
             callLog.push(table);
             if (table === "vacation_periods") {
@@ -50,6 +52,32 @@ function makeSupabaseClient(vacationRow) {
                 select() { return { maybeSingle: () => Promise.resolve({ data: null, error: null }), eq() { return this; }, insert() { return this; } }; },
                 insert() { return { select() { return { single: () => Promise.resolve({ data: null, error: null }) }; } }; }
             };
+        },
+        // js/cart.js now calls the canonical preview_weekly_pickup/
+        // submit_order RPCs (supabase/migrations/20260828100000_weekly_pickup_schedule.sql)
+        // instead of computing/inserting pickup_date client-side --
+        // these tests only care about the vacation guard firing (or
+        // not) before any of this is ever reached, so a fixed, always-
+        // successful stub is enough.
+        rpc(name, params) {
+            rpcCalls.push({ name, params });
+            if (name === "preview_weekly_pickup") {
+                return Promise.resolve({
+                    data: [{
+                        pickup_date: "2026-08-30", pickup_time: "12:30:00",
+                        pickup_weekday: 0, cutoff_weekday: 5, cutoff_time: "17:00:00",
+                        schedule_timezone: "Europe/Berlin"
+                    }],
+                    error: null
+                });
+            }
+            if (name === "submit_order") {
+                return Promise.resolve({
+                    data: { id: "order-1", order_type: params?.p_order_type, pickup_date: "2026-08-30", pickup_time: "12:30:00" },
+                    error: null
+                });
+            }
+            return Promise.resolve({ data: null, error: { message: `unexpected rpc in test stub: ${name}` } });
         }
     };
 }
@@ -103,6 +131,7 @@ function loadCartSandbox(vacationRow, cartItems) {
     const source = [
         read("js/vacation-mode.js"),
         read("js/mix-and-match.js"),
+        read("js/weekly-schedule.js"),
         read("js/cart.js"),
         `
         this.__openCheckoutModal = openCheckoutModal;

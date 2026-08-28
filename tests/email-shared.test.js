@@ -537,6 +537,7 @@ test("templates: orderReceivedEmail clearly labels itself as a request, not fina
         subtotalEur: 18,
         orderType: "weekly",
         pickupDate: "2026-08-23",
+        pickupTime: "12:30:00",
         specialInstructions: "Please slice it"
     });
 
@@ -575,7 +576,7 @@ test("templates: orderConfirmedEmail includes pickup date/time, and gracefully h
 
     const withLocation = t.orderConfirmedEmail({
         customerName: "Alex", orderRef: "abc123", orderType: "weekly",
-        pickupDate: "2026-08-23", pickupLocation: "123 Bakery Lane"
+        pickupDate: "2026-08-23", pickupTime: "12:30:00", pickupLocation: "123 Bakery Lane"
     });
     assert.match(withLocation.html, /123 Bakery Lane/);
     assert.match(withLocation.html, /12:30 PM/);
@@ -745,6 +746,7 @@ test("templates: adminNewOrderEmail includes the required subject format, every 
         orderRef: "ab12cd34",
         orderType: "weekly",
         pickupDate: "2026-08-23",
+        pickupTime: "12:30:00",
         items: [
             { name: "Sourdough Boule", quantity: 2, unitPriceEur: 9, lineTotalEur: 18 },
             { name: "Sea Salt Cookie", quantity: 3, unitPriceEur: 3.5, lineTotalEur: 10.5 }

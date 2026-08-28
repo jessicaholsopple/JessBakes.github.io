@@ -99,6 +99,64 @@
 
         <section class="dashboard-section">
 
+            <h2>Weekly Pickup Schedule</h2>
+
+            <p>
+                Controls exactly when a customer's checkout order gets
+                scheduled for the upcoming weekly pickup vs. the
+                following week. Changes take effect immediately for any
+                new order -- no deployment needed, and no existing order
+                is ever moved.
+            </p>
+
+            <div id="scheduleMessage" class="admin-inline-message" style="display:none;"></div>
+
+            <div class="form-row">
+
+                <div class="form-group">
+                    <label for="schedulePickupWeekday">Weekly pickup day</label>
+                    <select id="schedulePickupWeekday"></select>
+                </div>
+
+                <div class="form-group">
+                    <label for="schedulePickupTime">Weekly pickup time</label>
+                    <input type="time" id="schedulePickupTime">
+                </div>
+
+            </div>
+
+            <div class="form-row">
+
+                <div class="form-group">
+                    <label for="scheduleCutoffWeekday">Order cutoff day</label>
+                    <select id="scheduleCutoffWeekday"></select>
+                </div>
+
+                <div class="form-group">
+                    <label for="scheduleCutoffTime">Order cutoff time</label>
+                    <input type="time" id="scheduleCutoffTime">
+                </div>
+
+            </div>
+
+            <div class="form-group">
+                <label>Business timezone</label>
+                <input type="text" value="Europe/Berlin" disabled>
+                <p class="field-hint">Fixed -- every bakery-wide schedule calculation in this system already uses Europe/Berlin.</p>
+            </div>
+
+            <div id="scheduleRuleSummary" class="admin-inline-message is-info"></div>
+
+            <div id="schedulePreview" class="admin-inline-message is-info"></div>
+
+            <button id="saveScheduleBtn" class="primary-btn">
+                Save Weekly Schedule
+            </button>
+
+        </section>
+
+        <section class="dashboard-section">
+
             <h2>App &amp; Notifications</h2>
 
             <p>
@@ -355,6 +413,7 @@
 
 <script src="../js/layout.js"></script>
 
+<script src="../js/weekly-schedule.js"></script>
 <script src="../js/admin-settings.js"></script>
 <script src="../js/admin-push.js"></script>
 

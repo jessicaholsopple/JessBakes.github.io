@@ -1128,7 +1128,7 @@ async function deleteOrder(orderId, customerName, dateLabel, status) {
    MANUAL ORDER MODAL
 ========================================== */
 
-function openManualOrderModal() {
+async function openManualOrderModal() {
 
     manualOrderItems = {};
     manualBuilderBoxes = {};
@@ -1146,7 +1146,7 @@ document.querySelector(
 
     if (!modal) return;
 
-    resetManualOrderForm();
+    await resetManualOrderForm();
 
     modal.style.display = "flex";
 
@@ -1183,7 +1183,7 @@ function closeManualOrderModal() {
 
 }
 
-function resetManualOrderForm() {
+async function resetManualOrderForm() {
 
     setInputValue("manualCustomerName", "");
     setInputValue("manualCustomerPhone", "");
@@ -1191,13 +1191,35 @@ function resetManualOrderForm() {
     setInputValue("manualContact", "text");
     setInputValue("manualSource", "website");
     setInputValue("manualOrderType", "weekly");
-    setInputValue("manualPickupDate", getNextSundayForManualOrder());
+    setInputValue("manualPickupDate", await getDefaultPickupDateForManualOrder());
     setInputValue("manualEventDate", "");
     setInputValue("manualCustomPickupDate", "");
     setInputValue("manualNotes", "");
     setInputValue("manualStatus", "pending");
 
     toggleManualOrderType();
+
+}
+
+/** A convenient starting point for the pickup-date field -- the exact
+ *  same authoritative "if a customer ordered right now" answer the
+ *  public checkout page would show (preview_weekly_pickup, the current
+ *  saved schedule, the database clock), never a locally-recomputed
+ *  guess. Always fully editable afterward -- admins keep the existing
+ *  ability to pick any pickup date they need. Falls back to today's
+ *  date (never leaves the field blank) if the schedule can't be
+ *  reached for any reason. */
+async function getDefaultPickupDateForManualOrder() {
+
+    const { data, error } = await supabaseClient.rpc("preview_weekly_pickup");
+
+    if (error) {
+        console.error(error);
+        return new Date().toISOString().split("T")[0];
+    }
+
+    const preview = Array.isArray(data) ? data[0] : data;
+    return preview?.pickup_date || new Date().toISOString().split("T")[0];
 
 }
 
@@ -1890,24 +1912,6 @@ if (editingOrderId) {
    MANUAL ORDER HELPERS
 ========================================== */
 
-function getNextSundayForManualOrder() {
-
-    const today = new Date();
-    const day = today.getDay();
-
-    const daysUntilSunday =
-        day === 0
-            ? 7
-            : 7 - day;
-
-    const pickup = new Date(today);
-
-    pickup.setDate(today.getDate() + daysUntilSunday);
-
-    return pickup.toISOString().split("T")[0];
-
-}
-
 function getSourceLabel(source) {
 
     const labels = {
@@ -2055,7 +2059,12 @@ async function editOrder(orderId) {
         return;
     }
 
-    openManualOrderModal();
+    // Awaited: openManualOrderModal() now asynchronously fetches a
+    // DEFAULT pickup-date suggestion (for the New Order case) -- must
+    // fully resolve before this function overwrites manualPickupDate
+    // with the real existing order's own saved date below, or the
+    // default could clobber it once the fetch resolves.
+    await openManualOrderModal();
 
     document.getElementById("editingOrderId").value = order.id;
 

@@ -3771,6 +3771,27 @@ MENU CARD REDESIGN
     color: #a12a1f;
 }
 
+.admin-inline-message.is-info {
+    background: #eaf2fb;
+    border-color: #bcd6f0;
+    color: #1c4e7a;
+}
+
+/* Two-column field pairs (e.g. weekday + time) that stack to a single
+   column on narrow screens -- same .form-group children as everywhere
+   else, just laid out side by side where there's room. */
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 640px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+
 .email-status-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

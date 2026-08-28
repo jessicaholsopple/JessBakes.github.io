@@ -44,7 +44,7 @@ async function renderForRow(adminClient: any, row: any) {
     if (row.email_type === "order_received" || row.email_type === "order_confirmed" || row.email_type === "order_cancelled" || row.email_type === "admin_new_order") {
         const { data: order } = await adminClient
             .from("orders")
-            .select("id, customer_name, customer_email, customer_phone, preferred_contact, order_type, pickup_date, notes, subtotal, created_at")
+            .select("id, customer_name, customer_email, customer_phone, preferred_contact, order_type, pickup_date, pickup_time, notes, subtotal, created_at")
             .eq("id", row.recipient_ref_id)
             .maybeSingle();
 
@@ -68,6 +68,7 @@ async function renderForRow(adminClient: any, row: any) {
                     orderRef,
                     orderType: order.order_type,
                     pickupDate: order.pickup_date,
+                    pickupTime: order.pickup_time,
                     items: (items || []).map((i: any) => ({
                         name: i.item_name, quantity: i.quantity,
                         unitPriceEur: i.price_at_purchase, lineTotalEur: i.line_total
@@ -96,6 +97,7 @@ async function renderForRow(adminClient: any, row: any) {
                     subtotalEur: order.subtotal,
                     orderType: order.order_type,
                     pickupDate: order.pickup_date,
+                    pickupTime: order.pickup_time,
                     specialInstructions: order.order_type === "custom" ? order.notes : null
                 })
             };
@@ -115,6 +117,7 @@ async function renderForRow(adminClient: any, row: any) {
                     orderRef,
                     orderType: order.order_type,
                     pickupDate: order.pickup_date,
+                    pickupTime: order.pickup_time,
                     pickupLocation: bakerySettings?.pickup_location || null
                 })
             };
