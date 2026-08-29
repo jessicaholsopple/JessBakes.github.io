@@ -41,7 +41,7 @@ async function mintUnsubscribeLink(adminClient: any, subscriberId: string) {
  * order was somehow deleted) -- the caller marks the row 'skipped'
  * rather than retrying forever. */
 async function renderForRow(adminClient: any, row: any) {
-    if (row.email_type === "order_received" || row.email_type === "order_confirmed" || row.email_type === "order_cancelled" || row.email_type === "admin_new_order") {
+    if (row.email_type === "order_received" || row.email_type === "order_confirmed" || row.email_type === "order_confirmed_resend" || row.email_type === "order_cancelled" || row.email_type === "admin_new_order") {
         const { data: order } = await adminClient
             .from("orders")
             .select("id, customer_name, customer_email, customer_phone, preferred_contact, order_type, pickup_date, pickup_time, notes, subtotal, created_at, confirmation_exchange_rate, confirmation_usd_amount")
@@ -103,7 +103,7 @@ async function renderForRow(adminClient: any, row: any) {
             };
         }
 
-        if (row.email_type === "order_confirmed") {
+        if (row.email_type === "order_confirmed" || row.email_type === "order_confirmed_resend") {
             const { data: bakerySettings } = await adminClient
                 .from("bakery_settings")
                 .select("pickup_location")
@@ -120,6 +120,10 @@ async function renderForRow(adminClient: any, row: any) {
             // predates that snapshot (e.g. a legacy failed row from
             // before this feature existed), there is no trustworthy
             // amount to show -- skip rather than guess or send $0/NaN.
+            // (order_confirmed_resend rows always have this backfilled
+            // transactionally before being queued -- see js/admin-
+            // orders.js's one-time resend tooling -- but this guard
+            // stays in place regardless, for both email types.)
             if (order.confirmation_usd_amount === null || order.confirmation_usd_amount === undefined) {
                 return null;
             }
@@ -134,7 +138,8 @@ async function renderForRow(adminClient: any, row: any) {
                     pickupTime: order.pickup_time,
                     pickupLocation: bakerySettings?.pickup_location || null,
                     subtotalEur: order.subtotal,
-                    usdAmount: order.confirmation_usd_amount
+                    usdAmount: order.confirmation_usd_amount,
+                    isResend: row.email_type === "order_confirmed_resend"
                 })
             };
         }
@@ -292,10 +297,16 @@ export async function processOutboxRow(adminClient: any, row: any, settings: any
         return { success: false, terminal: true };
     }
 
+    // A test send (is_test:true -- always redirected to the configured
+    // test recipient, never a real customer, see resolveSendRecipient
+    // above) gets an unmistakable "[TEST]" subject prefix so it can
+    // never be confused with a real send sitting in the same inbox.
+    const outgoingSubject = row.is_test ? `[TEST] ${rendered.subject}` : rendered.subject;
+
     const result = await sendViaResend({
         from: rendered.from,
         to: recipientResult.recipient,
-        subject: rendered.subject,
+        subject: outgoingSubject,
         html: rendered.html,
         text: rendered.text,
         replyTo: settings?.reply_to_email || null

@@ -331,7 +331,7 @@ ${textFooter(["Contact: " + SITE_URL + "/contact.html", "Privacy: " + SITE_URL +
    ============================ */
 export function orderConfirmedEmail({
     customerName, orderRef, orderType, pickupDate, pickupTime, pickupLocation,
-    subtotalEur, usdAmount
+    subtotalEur, usdAmount, isResend = false
 }) {
     const timeLine = orderType === "weekly"
         ? (formatTime12h(pickupTime) || "12:30 PM")
@@ -378,9 +378,23 @@ Send payment to: ${VENMO_HANDLE}
     const contactHtml = `<p style="margin:20px 0 0 0;">If you have any questions or concerns, please reach out to me at <a href="${CONTACT_PHONE_TEL}" style="color:${BURGUNDY};">${esc(CONTACT_PHONE_DISPLAY)}</a>.</p>`;
     const contactText = `If you have any questions or concerns, please reach out to me at ${CONTACT_PHONE_DISPLAY}.`;
 
+    // isResend: a one-time resend of this SAME template to orders
+    // confirmed before the Payment Options section existed -- adds one
+    // explanatory sentence under the greeting and a distinct subject.
+    // Never the default path (isResend defaults to false), so the
+    // normal confirmation sent to a newly-confirmed order is completely
+    // unaffected by this.
+    const resendNoticeHtml = isResend
+        ? `<p style="margin:0 0 16px 0;">Here is your updated confirmation with complete pickup and payment information.</p>`
+        : "";
+    const resendNoticeText = isResend
+        ? "Here is your updated confirmation with complete pickup and payment information.\n"
+        : "";
+
     const bodyHtml = `
 <h1 style="font-size:20px;margin:0 0 4px 0;">Your order is confirmed! 🎉</h1>
 <p style="margin:0 0 4px 0;">Hi ${esc(customerName)},</p>
+${resendNoticeHtml}
 <p style="margin:0 0 16px 0;">Reference: <strong>#${esc(orderRef)}</strong></p>
 <p style="margin:0;"><strong>Pickup date:</strong> ${esc(friendlyDate)}</p>
 <p style="margin:4px 0 0 0;"><strong>Pickup time:</strong> ${esc(timeLine)}</p>
@@ -392,7 +406,7 @@ ${contactHtml}
     const text = `Your order is confirmed!
 
 Hi ${customerName},
-
+${resendNoticeText}
 Reference: #${orderRef}
 
 Pickup date: ${friendlyDate}
@@ -404,7 +418,7 @@ ${contactText}
 ${textFooter(["Contact: " + SITE_URL + "/contact.html", "Privacy: " + SITE_URL + "/privacy.html"])}`;
 
     return {
-        subject: `Order confirmed — #${orderRef}`,
+        subject: isResend ? `Updated order confirmation — #${orderRef}` : `Order confirmed — #${orderRef}`,
         html: emailShell({
             preheader: "Your pickup date and time are confirmed.",
             bodyHtml,

@@ -30,6 +30,13 @@ test("idempotency: key builders match the exact format the DB triggers use", asy
         "weekly_menu:2026-08-23:sub-1"
     );
     assert.equal(idem.adminNewOrderKey("abc-123"), "admin_new_order:abc-123");
+    assert.equal(idem.orderConfirmedResendKey("abc-123"), "order_confirmed_resend:abc-123");
+});
+
+test("idempotency: the one-time order-confirmed resend key is a distinct email type from the original confirmation, per order, never colliding with it", async () => {
+    const idem = await import(SHARED + "idempotency.mjs");
+    assert.notEqual(idem.orderConfirmedResendKey("order-1"), idem.orderConfirmedKey("order-1"));
+    assert.notEqual(idem.orderConfirmedResendKey("order-1"), idem.orderConfirmedResendKey("order-2"));
 });
 
 test("idempotency: different orders/consent events/campaigns never collide", async () => {
@@ -712,6 +719,36 @@ test("templates: orderConfirmedEmail's payment section never leaks internal cost
         assert.doesNotMatch(result.html.toLowerCase(), new RegExp(forbidden));
         assert.doesNotMatch(result.text.toLowerCase(), new RegExp(forbidden));
     }
+});
+
+/* ==========================================
+   One-time resend variant (isResend) -- adds the Payment Options
+   section's explanatory sentence + a distinct subject for orders
+   confirmed before that feature existed. Must never affect the
+   default (isResend omitted/false) path.
+   ========================================== */
+
+test("templates: orderConfirmedEmail defaults to the normal subject/body when isResend is omitted -- the resend variant never affects the default path", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
+    assert.equal(result.subject, "Order confirmed — #abc123");
+    assert.doesNotMatch(result.html, /updated confirmation/i);
+    assert.doesNotMatch(result.text, /updated confirmation/i);
+});
+
+test("templates: orderConfirmedEmail(isResend:true) uses the 'Updated order confirmation' subject and adds the one explanatory sentence, in both HTML and text", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail({ ...PAYMENT_FIXTURE, isResend: true });
+
+    assert.equal(result.subject, "Updated order confirmation — #abc123");
+    assert.match(result.html, /Here is your updated confirmation with complete pickup and payment information\./);
+    assert.match(result.text, /Here is your updated confirmation with complete pickup and payment information\./);
+
+    // Everything else about the email is unchanged -- same greeting,
+    // reference, pickup info, and full Payment Options section.
+    assert.match(result.html, /Your order is confirmed! 🎉/);
+    assert.match(result.html, /Payment Options/);
+    assert.match(result.html, /\$29 USD/);
 });
 
 test("templates: orderCancelledEmail is brief and includes a Contact link", async () => {

@@ -24,6 +24,19 @@ export function orderCancelledKey(orderId) {
     return `order_cancelled:${orderId}`;
 }
 
+/** One-time resend of the updated order-confirmation template (adds
+ * the Payment Options section) to orders that were confirmed before
+ * that feature existed. A distinct email_type from orderConfirmedKey
+ * -- not a re-use of the original key -- so it can never collide with
+ * or double up on the customer's original confirmation email, and so
+ * a second, unrelated future resend need would get its own new type
+ * rather than overloading this one. Exactly one ever exists per
+ * order, enforced the same way as every other key here: the unique
+ * constraint on email_outbox.idempotency_key. */
+export function orderConfirmedResendKey(orderId) {
+    return `order_confirmed_resend:${orderId}`;
+}
+
 /** Internal owner notification -- one per order, independent from
  * orderReceivedKey (a different email_type, a different outbox row),
  * so the two can succeed/fail/retry completely independently. */
