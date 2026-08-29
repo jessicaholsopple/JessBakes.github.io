@@ -33,7 +33,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     buildInventoryModals();
 
     await loadInventory();
+
+    handleRecipeDeepLink();
 });
+
+/** Opens a recipe directly in the existing edit modal when arriving via
+ * `?recipe=<id>` (used by the Recipe Cards page's "Edit Recipe" link) --
+ * a pure convenience deep link into the SAME editor this page already
+ * has, never a second one. Safe by construction: it only ever looks up
+ * an id already present in the `recipes` array this page loaded itself
+ * and opens the existing modal with it -- no new query, no write. A
+ * missing/unrecognized id simply no-ops, mirroring
+ * js/admin-orders.js's handleOrderDeepLink. */
+function handleRecipeDeepLink() {
+    const recipeId = new URLSearchParams(window.location.search).get("recipe");
+    if (!recipeId) return;
+
+    const exists = recipes.some(recipe => String(recipe.id) === String(recipeId));
+    if (!exists) return;
+
+    openRecipeModal(recipeId);
+}
 
 
 /*==================================================

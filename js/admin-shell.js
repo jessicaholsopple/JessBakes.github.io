@@ -51,7 +51,8 @@
         {
             label: "Production",
             items: [
-                { href: "production.html", label: "Production" }
+                { href: "production.html", label: "Production" },
+                { href: "recipe-cards.html", label: "Recipe Cards" }
             ]
         },
         {

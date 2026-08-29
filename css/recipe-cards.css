@@ -1,0 +1,561 @@
+/* ==========================================
+   RECIPE CARDS -- page-specific styles
+
+   Loaded only by admin/recipe-cards.html, on top of the shared
+   css/admin.css (variables, .admin-shell/.sidebar/.admin-content,
+   .modal/.modal-card, .primary-btn/.secondary-btn/.edit-option-btn).
+   Reuses the same visual language as Inventory's ingredient cards
+   (white rounded card, burgundy heading, muted stat blocks) so this
+   page reads as part of the same dashboard, not a new design system.
+   ========================================== */
+
+/* ---------- Data-quality warning banner ---------- */
+
+.rc-data-warning {
+    background: #fdf3e3;
+    border: 1px solid #e9c98a;
+    color: #6b4c14;
+    border-radius: 14px;
+    padding: 14px 18px;
+    margin-bottom: 24px;
+    font-size: .92rem;
+    line-height: 1.5;
+}
+
+/* ---------- Toolbar ---------- */
+
+.rc-toolbar {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 20px;
+    margin-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.rc-toolbar-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: flex-end;
+}
+
+.rc-toolbar-row-actions {
+    justify-content: space-between;
+    align-items: center;
+}
+
+.rc-search-input {
+    flex: 1 1 240px;
+    min-width: 0;
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-size: 1rem;
+}
+
+.rc-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: .8rem;
+    color: #857366;
+    font-weight: 600;
+}
+
+.rc-filter-field select {
+    padding: 11px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-size: 1rem;
+    min-height: 44px;
+    background: #fff;
+}
+
+.rc-result-count {
+    margin: 0;
+    color: #6e554a;
+    font-weight: 600;
+}
+
+/* ---------- Summary grid ---------- */
+
+.rc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+.rc-empty {
+    grid-column: 1 / -1;
+    background: var(--card);
+    border: 1px dashed var(--line);
+    border-radius: 16px;
+    padding: 32px;
+    text-align: center;
+    color: #857366;
+}
+
+.rc-card {
+    background: #fff;
+    border: 1px solid #ece2d9;
+    border-radius: 20px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    transition: .2s;
+}
+
+.rc-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 14px 28px rgba(0,0,0,.08);
+}
+
+.rc-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.rc-card-top h3 {
+    margin: 0;
+    color: #5d2018;
+    font-size: 1.1rem;
+    line-height: 1.3;
+    word-break: break-word;
+}
+
+.rc-card-category {
+    margin: 0;
+    color: #8b786d;
+    font-size: .85rem;
+}
+
+.rc-status {
+    flex: 0 0 auto;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: .68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.rc-status-active {
+    background: #e8f5ea;
+    color: #22663b;
+}
+
+.rc-status-inactive {
+    background: #f1e9df;
+    color: #7a5c3e;
+}
+
+.rc-status-unmapped {
+    background: #eee7f5;
+    color: #5b3f8f;
+}
+
+.rc-card-stats {
+    display: grid;
+    grid-template-columns: repeat(2,1fr);
+    gap: 10px;
+}
+
+.rc-card-stats > div {
+    background: #faf8f5;
+    border-radius: 12px;
+    padding: 10px 12px;
+}
+
+.rc-card-stats span {
+    display: block;
+    font-size: .68rem;
+    text-transform: uppercase;
+    color: #8b786d;
+    letter-spacing: .06em;
+    margin-bottom: 4px;
+}
+
+.rc-card-stats strong {
+    color: #5d2018;
+    font-size: 1rem;
+}
+
+.rc-card-linked {
+    margin: 0;
+    font-size: .85rem;
+    color: #6e554a;
+}
+
+.rc-warning-pill {
+    align-self: flex-start;
+    background: #fdeaea;
+    color: #b22626;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: .72rem;
+    font-weight: 700;
+    cursor: help;
+}
+
+.rc-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: auto;
+}
+
+.rc-card-actions button,
+.rc-card-actions a {
+    flex: 1 1 auto;
+    text-align: center;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .85rem;
+    padding-left: 10px;
+    padding-right: 10px;
+    text-decoration: none;
+}
+
+/* ---------- Detail modal ---------- */
+
+.rc-detail-card {
+    width: min(760px, 94vw);
+    max-width: 760px;
+}
+
+.rc-detail-header {
+    align-items: flex-start;
+}
+
+.rc-detail-header h2 {
+    margin: 0 0 4px 0;
+    color: #5d2018;
+}
+
+.rc-detail-meta {
+    margin: 0;
+    color: #8b786d;
+    font-size: .9rem;
+}
+
+.rc-warning-list {
+    background: #fdf3e3;
+    border: 1px solid #e9c98a;
+    color: #6b4c14;
+    border-radius: 14px;
+    padding: 12px 16px;
+    margin: 16px 0;
+    font-size: .88rem;
+}
+
+.rc-warning-list ul {
+    margin: 6px 0 0;
+    padding-left: 20px;
+}
+
+.rc-scale-panel {
+    background: #faf8f5;
+    border-radius: 14px;
+    padding: 14px 16px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.rc-scale-label {
+    font-weight: 700;
+    color: #5d2018;
+    font-size: .88rem;
+}
+
+.rc-scale-presets {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.rc-scale-btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 8px 14px;
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: .9rem;
+}
+
+.rc-scale-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.rc-scale-custom {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: .85rem;
+    color: #6e554a;
+}
+
+.rc-scale-custom input {
+    width: 90px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-size: 1rem;
+    min-height: 44px;
+}
+
+.rc-scale-error {
+    width: 100%;
+    margin: 0;
+    color: #b22626;
+    font-size: .85rem;
+    font-weight: 600;
+}
+
+.rc-scaled-yield {
+    font-size: 1.02rem;
+    margin: 0 0 16px 0;
+}
+
+.rc-detail-section {
+    margin-bottom: 20px;
+}
+
+.rc-detail-section h3 {
+    margin: 0 0 10px 0;
+    color: #5d2018;
+    font-size: 1.02rem;
+}
+
+.rc-ingredient-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.rc-ingredient-list li {
+    display: flex;
+    gap: 14px;
+    padding: 9px 0;
+    border-bottom: 1px solid #f1e7da;
+    align-items: baseline;
+}
+
+.rc-ingredient-qty {
+    flex: 0 0 auto;
+    min-width: 90px;
+    font-weight: 700;
+    color: #5d2018;
+    white-space: nowrap;
+}
+
+.rc-ingredient-name {
+    color: #3b2a24;
+}
+
+.rc-ingredient-missing {
+    color: #b22626;
+    font-weight: 600;
+    padding: 9px 0;
+}
+
+.rc-ingredient-missing-inline {
+    color: #b22626;
+    font-weight: 600;
+}
+
+.rc-used-in p {
+    margin: 0;
+    color: #6e554a;
+}
+
+.rc-notes {
+    white-space: pre-line;
+    color: #3b2a24;
+    line-height: 1.6;
+    margin: 0;
+}
+
+/* ---------- Mobile ---------- */
+
+@media (max-width: 700px) {
+    .rc-toolbar-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .rc-toolbar-row-actions {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .rc-toolbar-row-actions button {
+        min-height: 44px;
+    }
+
+    .rc-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .rc-card-actions button,
+    .rc-card-actions a {
+        flex: 1 1 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .rc-detail-card {
+        width: 96vw;
+        padding: 20px 16px;
+    }
+
+    .rc-scale-presets {
+        width: 100%;
+    }
+
+    .rc-scale-btn {
+        flex: 1 1 auto;
+    }
+
+    .rc-scale-custom {
+        width: 100%;
+    }
+
+    .rc-scale-custom input {
+        flex: 1 1 auto;
+        width: auto;
+    }
+}
+
+/* ---------- Printing ----------
+
+   #printArea lives outside .admin-shell, stays display:none on
+   screen, and is only ever populated (via JS) immediately before
+   window.print() is called -- never left with stale content while
+   the page is in normal use. Everything interactive (sidebar, nav,
+   toolbar, filters, buttons, the scale panel) is hidden in print via
+   `.no-print` and `.admin-shell` itself; only the printable snapshot
+   is shown. */
+
+.print-only {
+    display: none;
+}
+
+@media print {
+    body.printing-one .admin-shell,
+    body.printing-all .admin-shell {
+        display: none !important;
+    }
+
+    body.printing-one .print-only,
+    body.printing-all .print-only {
+        display: block !important;
+    }
+
+    .no-print {
+        display: none !important;
+    }
+
+    body {
+        background: #fff !important;
+        color: #000 !important;
+    }
+
+    .print-all-title {
+        margin: 0 0 18px 0;
+        color: #000;
+    }
+
+    .print-recipe {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        margin-bottom: 26px;
+        padding-bottom: 18px;
+        border-bottom: 1px solid #999;
+    }
+
+    .print-recipe:last-child {
+        border-bottom: none;
+    }
+
+    .print-recipe h2 {
+        margin: 0 0 4px 0;
+        color: #000;
+        font-size: 1.3rem;
+    }
+
+    .print-recipe h4 {
+        margin: 14px 0 6px 0;
+        color: #000;
+        font-size: 1rem;
+        border-bottom: 1px solid #ccc;
+        padding-bottom: 4px;
+    }
+
+    .print-recipe-meta,
+    .print-recipe-yield,
+    .print-scale-note {
+        margin: 2px 0;
+        color: #333 !important;
+    }
+
+    .print-scale-note {
+        font-weight: 700;
+        color: #000 !important;
+    }
+
+    .print-recipe ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .print-recipe li {
+        display: flex;
+        gap: 10px;
+        padding: 4px 0;
+        color: #000;
+        border-bottom: 1px dotted #ccc;
+    }
+
+    .print-recipe .rc-ingredient-qty {
+        min-width: 80px;
+        font-weight: 700;
+        color: #000;
+    }
+
+    .print-recipe .rc-ingredient-name {
+        color: #000;
+    }
+
+    /* A short recipe (heading + a handful of ingredients) should not
+       be split awkwardly right after its title -- break-inside:avoid
+       above already keeps the whole block together where the recipe
+       fits on one page; a longer recipe that genuinely can't fit is
+       still allowed to continue onto the next page rather than
+       forcing an unreadable shrink. */
+    .print-recipe h2,
+    .print-recipe h4 {
+        break-after: avoid;
+        page-break-after: avoid;
+    }
+}

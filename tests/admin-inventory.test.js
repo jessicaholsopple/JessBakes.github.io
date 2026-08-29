@@ -145,7 +145,7 @@ function loadSandbox({ ingredients, categories, suppliers, recipes, recipeCosts 
     const elements = new Map();
     function fakeElement(id) {
         if (!elements.has(id)) {
-            elements.set(id, { id, value: "", textContent: "", innerHTML: "", style: {}, disabled: false, addEventListener: () => {} });
+            elements.set(id, { id, value: "", textContent: "", innerHTML: "", style: {}, disabled: false, addEventListener: () => {}, appendChild: () => {} });
         }
         return elements.get(id);
     }
@@ -157,14 +157,18 @@ function loadSandbox({ ingredients, categories, suppliers, recipes, recipeCosts 
     const fakeDocument = {
         addEventListener: () => {},
         getElementById: (id) => fakeElement(id),
-        createElement: () => ({ style: {}, classList: { add: () => {} }, appendChild: () => {}, innerHTML: "" }),
+        createElement: () => ({
+            style: {}, classList: { add: () => {} }, appendChild: () => {}, innerHTML: "",
+            querySelector: () => ({ value: "" })
+        }),
         querySelectorAll: () => [],
         body: { appendChild: () => {} }
     };
 
     const sandbox = {
         document: fakeDocument,
-        window: {},
+        window: { location: { search: "" } },
+        URLSearchParams,
         console,
         supabaseClient,
         alert: (msg) => alertCalls.push(msg),
@@ -194,6 +198,8 @@ function loadSandbox({ ingredients, categories, suppliers, recipes, recipeCosts 
         this.__openRestockModal = openRestockModal;
         this.__getIngredients = () => ingredients;
         this.__getRecipeCost = getRecipeCost;
+        this.__openRecipeModal = openRecipeModal;
+        this.__handleRecipeDeepLink = handleRecipeDeepLink;
         `
     ].join("\n");
 
@@ -550,4 +556,38 @@ test("24. the confirmed example's raw cost-per-gram is calculated from 680, not 
     // Sanity: the two are meaningfully different (10x) -- proves this
     // assertion would actually catch the regression if it recurred.
     assert.ok(buggyCostPerGram > correctCostPerGram * 9);
+});
+
+/* ==========================================
+   25. Recipe Cards deep link (?recipe=<id> opens the existing editor)
+
+   Added alongside the new Recipe Cards page's "Edit Recipe" link --
+   a pure convenience deep link into this SAME modal, never a second
+   editor. Purely additive: reads the id from the URL and opens the
+   existing openRecipeModal exactly as the "Edit Recipe" button in
+   this page's own recipe list already does.
+   ========================================== */
+
+test("25. handleRecipeDeepLink opens the existing recipe editor pre-filled when arriving via ?recipe=<id>", async () => {
+    const { sandbox, elements } = loadSandbox();
+    await sandbox.__loadInventory();
+
+    sandbox.window.location.search = "?recipe=7";
+    sandbox.__handleRecipeDeepLink();
+
+    assert.equal(elements.get("recipeId").value, 7);
+    assert.equal(elements.get("recipeName").value, baseRecipes()[0].name);
+});
+
+test("26. handleRecipeDeepLink safely no-ops for a missing/unknown recipe id -- it never opens a blank 'Add Recipe' form instead", async () => {
+    const { sandbox, elements } = loadSandbox();
+    await sandbox.__loadInventory();
+
+    sandbox.window.location.search = "?recipe=999999";
+    sandbox.__handleRecipeDeepLink();
+    assert.equal(sandbox.document.getElementById("recipeModal").style.display, undefined, "the modal must not be opened for an unrecognized id");
+
+    sandbox.window.location.search = "";
+    sandbox.__handleRecipeDeepLink();
+    assert.equal(sandbox.document.getElementById("recipeModal").style.display, undefined, "no ?recipe param must never open the modal");
 });

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+    <title>Recipe Cards | Jess Bakes Sourdough</title>
+
+    <link rel="stylesheet"
+          href="../css/admin.css">
+    <link rel="stylesheet"
+          href="../css/recipe-cards.css">
+  <link rel="icon" type="image/png" href="../images/jess-bakes-logo.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/images/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Jess Bakes">
+  <meta name="theme-color" content="#7b2b22">
+</head>
+
+<body>
+
+<div class="admin-shell">
+
+    <aside class="sidebar">
+
+        <div class="sidebar-brand">
+            <h2>Jess Bakes</h2>
+            <span>SOURDOUGH</span>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Admin navigation"></nav>
+
+        <button id="logoutBtn" class="logout-btn">
+            Sign Out
+        </button>
+
+    </aside>
+
+    <main class="admin-content">
+
+        <header class="admin-header">
+            <div>
+                <h1>Recipe Cards</h1>
+                <p>
+                    A quick, printable reference for every saved recipe. Cards render directly
+                    from the same recipe data used by Inventory &amp; Production — nothing here
+                    is copied or editable. Use <strong>Edit Recipe</strong> to make changes in
+                    the existing recipe editor.
+                </p>
+            </div>
+        </header>
+
+        <section id="recipeCardsWarningBanner" class="rc-data-warning" hidden></section>
+
+        <section class="rc-toolbar">
+
+            <div class="rc-toolbar-row">
+
+                <input
+                    id="recipeCardsSearch"
+                    class="rc-search-input"
+                    type="search"
+                    placeholder="Search recipes by name..."
+                    aria-label="Search recipes by name"
+                    oninput="renderGrid()">
+
+                <label class="rc-filter-field">
+                    <span>Category</span>
+                    <select id="recipeCardsCategoryFilter" onchange="renderGrid()">
+                        <option value="all">All categories</option>
+                    </select>
+                </label>
+
+                <label class="rc-filter-field">
+                    <span>Status</span>
+                    <select id="recipeCardsStatusFilter" onchange="renderGrid()">
+                        <option value="all">All statuses</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="unmapped">Unmapped</option>
+                    </select>
+                </label>
+
+            </div>
+
+            <div class="rc-toolbar-row rc-toolbar-row-actions">
+                <p id="recipeCardsResultCount" class="rc-result-count">Loading recipes…</p>
+                <button type="button" class="primary-btn" onclick="printAllVisible()">
+                    Print All Visible Recipes
+                </button>
+            </div>
+
+        </section>
+
+        <section id="recipeCardsGrid" class="rc-grid" aria-live="polite">
+            <p class="rc-empty">Loading recipes…</p>
+        </section>
+
+    </main>
+</div>
+
+<!-- ==============================
+     RECIPE DETAIL MODAL
+=============================== -->
+<div id="recipeDetailModal" class="modal">
+    <div class="modal-card rc-detail-card">
+
+        <div class="modal-header rc-detail-header">
+            <div>
+                <h2 id="rcDetailName">Recipe name</h2>
+                <p id="rcDetailMeta" class="rc-detail-meta"></p>
+            </div>
+            <button type="button" class="modal-close" aria-label="Close" onclick="closeDetail()">&times;</button>
+        </div>
+
+        <div id="rcDetailWarnings" class="rc-warning-list" hidden></div>
+
+        <div class="rc-scale-panel no-print">
+            <span class="rc-scale-label">Batch size:</span>
+            <div id="rcScalePresets" class="rc-scale-presets"></div>
+            <label class="rc-scale-custom">
+                <span>Custom</span>
+                <input id="rcCustomMultiplier" type="number" min="0" step="any" placeholder="e.g. 1.5" inputmode="decimal">
+                <button type="button" class="secondary-btn" onclick="applyCustomMultiplier()">Apply</button>
+            </label>
+            <p id="rcScaleError" class="rc-scale-error" hidden></p>
+        </div>
+
+        <p id="rcScaledYield" class="rc-scaled-yield"></p>
+
+        <div class="rc-detail-section">
+            <h3>Ingredients</h3>
+            <ul id="rcIngredientList" class="rc-ingredient-list"></ul>
+        </div>
+
+        <div id="rcComponentSection" class="rc-detail-section" hidden>
+            <h3>Made with these recipes</h3>
+            <ul id="rcComponentList" class="rc-ingredient-list"></ul>
+        </div>
+
+        <div id="rcUsedInSection" class="rc-detail-section rc-used-in" hidden>
+            <h3>Used as a component in</h3>
+            <p id="rcUsedInText"></p>
+        </div>
+
+        <div class="rc-detail-section">
+            <h3>Recipe Notes</h3>
+            <p id="rcNotes" class="rc-notes"></p>
+        </div>
+
+        <div class="modal-footer no-print">
+            <a id="rcEditLink" class="edit-option-btn" href="inventory.html">Edit Recipe</a>
+            <button type="button" class="secondary-btn" onclick="printOpenRecipe()">Print Recipe</button>
+            <button type="button" class="primary-btn" onclick="closeDetail()">Close</button>
+        </div>
+
+    </div>
+</div>
+
+<div id="printArea" class="print-only"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../js/supabase.js"></script>
+<script src="../js/admin-shell.js"></script>
+<script src="../js/auth.js"></script>
+<script src="../js/quantity-format.js"></script>
+<script src="../js/recipe-scaling.js"></script>
+<script src="../js/recipe-cards-logic.js"></script>
+<script src="../js/admin-recipe-cards.js"></script>
+</body>
+</html>
