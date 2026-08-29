@@ -56,7 +56,10 @@ function smoresRecipe() {
             ingredientRow(9, 8, 150, "Brown Sugar", "g"),
             ingredientRow(10, 9, 100, "White Sugar", "g"),
             ingredientRow(11, 10, 170, "Butter", "g"),
-            ingredientRow(12, 11, 2, "Eggs", "each"),
+            // Migrated: S'mores Cookies (a Cookie-category recipe) now
+            // uses Egg Yolks, not whole Eggs -- see the Egg/Egg Yolk
+            // migration. Quantity matches the real live data (4).
+            ingredientRow(12, 57, 4, "Egg Yolks", "each"),
             ingredientRow(13, 12, 340, "Honey Graham Crumbs", "g"),
             ingredientRow(14, 13, 50, "Cocoa Powder", "g")
         ],
@@ -89,7 +92,14 @@ function cinnamonRollsRecipe() {
     return {
         id: 9, name: "Cinnamon Rolls", category: "Dessert",
         yield_quantity: 8, yield_unit: "item", notes: null,
-        recipe_ingredients: [ingredientRow(60, 22, 500, "Bread Flour", "g")],
+        recipe_ingredients: [
+            ingredientRow(60, 22, 500, "Bread Flour", "g"),
+            // Migrated: the canonical Cinnamon Rolls recipe now uses 1
+            // whole Egg + 1 Egg Yolk (was 2 whole Eggs) -- see the
+            // Egg/Egg Yolk migration.
+            ingredientRow(61, 6, 1, "Eggs", "each"),
+            ingredientRow(62, 57, 1, "Egg Yolks", "each")
+        ],
         recipe_components: [
             { id: 7, component_recipe_id: 10, quantity_used: 4, quantity_unit: "item", component_recipe: { id: 10, name: "Cream Cheese Frosting" } }
         ]
@@ -105,8 +115,23 @@ function brokenTestRecipe() {
     };
 }
 
+// Mirrors the real, unchanged Classic Brownies: whole Eggs, never
+// converted to Egg Yolks by the migration (Brownies are explicitly
+// excluded from that conversion regardless of category).
+function classicBrowniesRecipe() {
+    return {
+        id: 21, name: "Classic Brownies", category: "Dessert",
+        yield_quantity: 12, yield_unit: "item", notes: "13x9 pan",
+        recipe_ingredients: [
+            ingredientRow(80, 40, 283, "Butter", "g"),
+            ingredientRow(81, 6, 5, "Eggs", "each")
+        ],
+        recipe_components: []
+    };
+}
+
 function baseRecipes() {
-    return [smoresRecipe(), classicBouleRecipe(), creamCheeseFrostingRecipe(), cinnamonRollsRecipe(), brokenTestRecipe()];
+    return [smoresRecipe(), classicBouleRecipe(), creamCheeseFrostingRecipe(), cinnamonRollsRecipe(), classicBrowniesRecipe(), brokenTestRecipe()];
 }
 
 function baseMenuItems() {
@@ -212,6 +237,7 @@ function loadSandbox(state = { recipes: baseRecipes(), menu_items: baseMenuItems
     const source = [
         read("js/quantity-format.js"),
         read("js/recipe-scaling.js"),
+        read("js/ingredient-naming.js"),
         read("js/recipe-cards-logic.js"),
         read("js/admin-recipe-cards.js"),
         `
@@ -241,7 +267,7 @@ test("1. every current recipe appears exactly once after loading", async () => {
     await sandbox.__loadRecipeCardsData();
     const views = sandbox.__getViews();
 
-    assert.equal(views.length, 5);
+    assert.equal(views.length, 6);
     const ids = views.map(v => v.recipe.id);
     assert.equal(new Set(ids).size, ids.length, "no duplicate recipe appears twice");
 });
@@ -298,7 +324,7 @@ test("4. search filters the grid by name and updates the result count", async ()
     const html = elements.get("recipeCardsGrid").innerHTML;
     assert.match(html, /Cinnamon Rolls/);
     assert.doesNotMatch(html, /Classic Boule/);
-    assert.match(elements.get("recipeCardsResultCount").textContent, /1 recipe shown of 5 total/);
+    assert.match(elements.get("recipeCardsResultCount").textContent, /1 recipe shown of 6 total/);
 });
 
 test("5. category filter narrows to only that category", async () => {
@@ -620,4 +646,92 @@ test("25. a ?recipe=<id> URL opens that recipe's detail automatically", async ()
     sandbox.handleRecipeCardsDeepLink();
 
     assert.equal(elements.get("rcDetailName").textContent, "Cream Cheese Frosting");
+});
+
+/* ==========================================
+   26+. Egg / Egg Yolk display wording and scaling
+   ========================================== */
+
+test("26. S'mores Cookies displays '4 Egg Yolks' at 1x -- correct plural, no redundant unit word", async () => {
+    const { sandbox, elements } = loadSandbox();
+    await sandbox.__loadRecipeCardsData();
+    sandbox.openRecipeDetail(22);
+
+    const html = elements.get("rcIngredientList").innerHTML;
+    const collapsed = html.replace(/\s+/g, " ");
+    assert.ok(collapsed.includes(">4</span><span class=\"rc-ingredient-name\">Egg Yolks<"), "expected " + ">4</span><span class=\"rc-ingredient-name\">Egg Yolks<");
+    assert.doesNotMatch(collapsed, /4 each Egg Yolks/, "the redundant unit word must be omitted for count-unit ingredients");
+});
+
+test("27. canonical Cinnamon Rolls displays '1 Egg' and '1 Egg Yolk' at 1x (singular, grammatically correct)", async () => {
+    const { sandbox, elements } = loadSandbox();
+    await sandbox.__loadRecipeCardsData();
+    sandbox.openRecipeDetail(9);
+
+    const html = elements.get("rcIngredientList").innerHTML;
+    const collapsed = html.replace(/\s+/g, " ");
+    assert.ok(collapsed.includes(">1</span><span class=\"rc-ingredient-name\">Egg<"), "expected " + ">1</span><span class=\"rc-ingredient-name\">Egg<");
+    assert.ok(collapsed.includes(">1</span><span class=\"rc-ingredient-name\">Egg Yolk<"), "expected " + ">1</span><span class=\"rc-ingredient-name\">Egg Yolk<");
+    assert.doesNotMatch(collapsed, /1 Eggs</, "must never show the plural at quantity 1");
+});
+
+test("28. a 2x cookie recipe containing Egg Yolks scales the displayed quantity correctly (4 Egg Yolks -> 8 Egg Yolks)", async () => {
+    const { sandbox, elements } = loadSandbox();
+    await sandbox.__loadRecipeCardsData();
+    sandbox.openRecipeDetail(22);
+    sandbox.setMultiplier(2);
+
+    const html = elements.get("rcIngredientList").innerHTML;
+    const collapsed = html.replace(/\s+/g, " ");
+    assert.ok(collapsed.includes(">8</span><span class=\"rc-ingredient-name\">Egg Yolks<"), "expected " + ">8</span><span class=\"rc-ingredient-name\">Egg Yolks<");
+});
+
+test("29. a 2x Cinnamon Rolls recipe displays '2 Eggs' and '2 Egg Yolks' (both pluralize correctly together)", async () => {
+    const { sandbox, elements } = loadSandbox();
+    await sandbox.__loadRecipeCardsData();
+    sandbox.openRecipeDetail(9);
+    sandbox.setMultiplier(2);
+
+    const html = elements.get("rcIngredientList").innerHTML;
+    const collapsed = html.replace(/\s+/g, " ");
+    assert.ok(collapsed.includes(">2</span><span class=\"rc-ingredient-name\">Eggs<"), "expected " + ">2</span><span class=\"rc-ingredient-name\">Eggs<");
+    assert.ok(collapsed.includes(">2</span><span class=\"rc-ingredient-name\">Egg Yolks<"), "expected " + ">2</span><span class=\"rc-ingredient-name\">Egg Yolks<");
+
+    // Scaling is display-only -- the underlying stored recipe must be
+    // completely unaffected.
+    const eggRow = sandbox.__getOpenView().recipe.recipe_ingredients.find(r => r.ingredients.name === "Eggs");
+    const yolkRow = sandbox.__getOpenView().recipe.recipe_ingredients.find(r => r.ingredients.name === "Egg Yolks");
+    assert.equal(eggRow.quantity, 1);
+    assert.equal(yolkRow.quantity, 1);
+
+    // Resetting to 1x reproduces the exact base display.
+    sandbox.setMultiplier(1);
+    const backToBase = elements.get("rcIngredientList").innerHTML.replace(/\s+/g, " ");
+    assert.ok(backToBase.includes(">1</span><span class=\"rc-ingredient-name\">Egg<"), "expected " + ">1</span><span class=\"rc-ingredient-name\">Egg<");
+    assert.ok(backToBase.includes(">1</span><span class=\"rc-ingredient-name\">Egg Yolk<"), "expected " + ">1</span><span class=\"rc-ingredient-name\">Egg Yolk<");
+});
+
+test("30. Classic Brownies keeps whole Eggs unaffected, at any scale ('5 Eggs' at 1x, '10 Eggs' at 2x, never Egg Yolks)", async () => {
+    const { sandbox, elements } = loadSandbox();
+    await sandbox.__loadRecipeCardsData();
+    sandbox.openRecipeDetail(21);
+
+    let html = elements.get("rcIngredientList").innerHTML.replace(/\s+/g, " ");
+    assert.ok(html.includes(">5</span><span class=\"rc-ingredient-name\">Eggs<"), "expected " + ">5</span><span class=\"rc-ingredient-name\">Eggs<");
+    assert.doesNotMatch(html, /Egg Yolk/);
+
+    sandbox.setMultiplier(2);
+    html = elements.get("rcIngredientList").innerHTML.replace(/\s+/g, " ");
+    assert.ok(html.includes(">10</span><span class=\"rc-ingredient-name\">Eggs<"), "expected " + ">10</span><span class=\"rc-ingredient-name\">Eggs<");
+});
+
+test("31. printing a recipe with Egg/Egg Yolk ingredients shows the same correct wording as the on-screen detail", async () => {
+    const { sandbox, elements } = loadSandbox();
+    await sandbox.__loadRecipeCardsData();
+    sandbox.openRecipeDetail(9);
+
+    sandbox.printOpenRecipe();
+    const printHtml = elements.get("printArea").innerHTML.replace(/\s+/g, " ");
+    assert.ok(printHtml.includes(">1</span><span class=\"rc-ingredient-name\">Egg<"), "expected " + ">1</span><span class=\"rc-ingredient-name\">Egg<");
+    assert.ok(printHtml.includes(">1</span><span class=\"rc-ingredient-name\">Egg Yolk<"), "expected " + ">1</span><span class=\"rc-ingredient-name\">Egg Yolk<");
 });

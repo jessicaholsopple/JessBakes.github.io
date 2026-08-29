@@ -378,7 +378,16 @@ function buildPlan() {
             .forEach(profileItem => {
                 const ingredient = ingredientMap.get(String(profileItem.ingredient_id));
                 if (!ingredient) return;
-                addReq(packaging, ingredient, Number(profileItem.quantity || 0) * quantity, "packaging");
+                const requiredQuantity = Number(profileItem.quantity || 0) * quantity;
+                const resolved = DerivedIngredients.resolvePhysicalQuantity(ingredient, requiredQuantity, ingredientMap);
+                if (!resolved) return;
+                addReq(
+                    packaging,
+                    resolved.ingredient,
+                    resolved.quantity,
+                    "packaging",
+                    resolved.isDerived ? { label: ingredient.name, quantity: requiredQuantity } : null
+                );
             });
 
         packagingCost += Number(packagingCostMap.get(String(profileId))?.packaging_cost || 0) * quantity;
@@ -676,13 +685,40 @@ function collectRecipeRequirements({
 
             }
 
+            const requiredQuantity =
+                Number(recipeIngredient.quantity || 0) * multiplier;
+
+            // A derived ingredient (e.g. Egg Yolks) contributes to its
+            // PHYSICAL source's requirement, not a second independent
+            // one -- see js/derived-ingredients.js. This is what makes
+            // "5 whole Eggs + 12 Egg Yolks" aggregate into one 17-Egg
+            // physical requirement for shortage checking, the shopping
+            // list, and the deduction payload sent to complete_production.
+            const resolved =
+                DerivedIngredients.resolvePhysicalQuantity(
+                    ingredient,
+                    requiredQuantity,
+                    ingredientMap
+                );
+
+            if (!resolved) {
+
+                warnings.push(
+                    `"${ingredient.name}" is derived from an ingredient that no longer exists -- correct its source in Inventory before finishing production.`
+                );
+
+                return;
+
+            }
+
             addReq(
                 ingredientTotals,
-                ingredient,
-                Number(
-                    recipeIngredient.quantity || 0
-                ) * multiplier,
-                "ingredient"
+                resolved.ingredient,
+                resolved.quantity,
+                "ingredient",
+                resolved.isDerived
+                    ? { label: ingredient.name, quantity: requiredQuantity }
+                    : null
             );
 
         });
@@ -854,8 +890,14 @@ function calculateRequirementCost(requirement) {
     );
 
 }
-function addReq(map,ing,qty,source){const k=String(ing.id),x=map.get(k)||{ingredientId:ing.id,name:ing.name,source,recipeUnit:ing.recipe_unit,purchaseUnit:ing.purchase_unit,onHandPurchase:Number(ing.quantity_on_hand||0),minimumPurchase:Number(ing.minimum_quantity||0),required:0};x.required+=qty;map.set(k,x);}
-function combine(items){const m=new Map();items.forEach(x=>{const k=String(x.ingredientId),v=m.get(k)||{...x,required:0,sources:[]};v.required+=x.required;if(!v.sources.includes(x.source))v.sources.push(x.source);m.set(k,v);});return[...m.values()].map(finalize).sort(sortName);}
+// `breakdown` (optional) is {label, quantity} in the ORIGINAL
+// ingredient's own name/quantity (e.g. "Egg Yolks", 12) -- `qty` here
+// is always already the PHYSICAL, resolved amount (see
+// js/derived-ingredients.js). Every requirement line tracks its own
+// breakdown list so the UI can show "5 Eggs + 12 Egg Yolks" while
+// `required` itself is always the correct combined physical total.
+function addReq(map,ing,qty,source,breakdown){const k=String(ing.id),x=map.get(k)||{ingredientId:ing.id,name:ing.name,source,recipeUnit:ing.recipe_unit,purchaseUnit:ing.purchase_unit,onHandPurchase:Number(ing.quantity_on_hand||0),minimumPurchase:Number(ing.minimum_quantity||0),required:0,breakdown:[]};x.required+=qty;const entry=breakdown||{label:ing.name,quantity:qty};const existing=x.breakdown.find(b=>b.label===entry.label);if(existing)existing.quantity+=entry.quantity;else x.breakdown.push({label:entry.label,quantity:entry.quantity});map.set(k,x);}
+function combine(items){const m=new Map();items.forEach(x=>{const k=String(x.ingredientId),v=m.get(k)||{...x,required:0,sources:[],breakdown:[]};v.required+=x.required;if(!v.sources.includes(x.source))v.sources.push(x.source);(x.breakdown||[]).forEach(entry=>{const existing=v.breakdown.find(b=>b.label===entry.label);if(existing)existing.quantity+=entry.quantity;else v.breakdown.push({...entry});});m.set(k,v);});return[...m.values()].map(finalize).sort(sortName);}
 function finalize(x){const have=convert(x.onHandPurchase,x.purchaseUnit,x.recipeUnit),min=convert(x.minimumPurchase,x.purchaseUnit,x.recipeUnit),ok=have!==null,safe=ok?have:0,shortage=Math.max(x.required-safe,0),remaining=safe-x.required;let status="good";if(!ok)status="unknown";else if(shortage>0)status="short";else if(min!==null&&remaining<=min)status="low";return{...x,have:safe,minimum:min||0,shortage,remaining,convertible:ok,status};}
 
 function renderAll(){renderSubtitle();renderRun();renderWarnings();setText("productionOrderCount",plan.orderCount);setText("productionItemCount",fmt(plan.itemCount));setText("productionRevenue",plan.rateAvailable?usd(plan.usdRevenue):"—");setText("productionProfit",plan.rateAvailable?usd(plan.usdProfit):"—");setText("productionShortageCount",plan.shortages.length);renderProducts();renderBatches();renderCosts();renderIngredients();renderShopping();renderPackaging();renderChecklist();renderTimeline();renderOrders();}
@@ -981,7 +1023,13 @@ function renderCosts(){
     document.getElementById("productionCosts").innerHTML=`${rateNotice}<div class="production-metric-list">${metric("Expected Revenue (USD)",plan.rateAvailable?usd(plan.usdRevenue):"—")}${metric("Ingredient Cost (USD)",usd(plan.foodCost))}${metric("Packaging Cost (USD)",usd(plan.packagingCost))}${metric("Total Estimated Cost (USD)",usd(plan.totalCost))}${metric("Estimated Profit (USD)",plan.rateAvailable?usd(plan.usdProfit):"—")}${metric("Estimated Margin",plan.rateAvailable?`${plan.usdMargin.toFixed(1)}%`:"—")}</div>`;
 }
 function renderIngredients(){const el=document.getElementById("ingredientRequirements"),badge=document.getElementById("ingredientStatusBadge"),rows=plan.combined.filter(x=>x.sources.includes("ingredient"));if(!rows.length){el.innerHTML=empty("No ingredient requirements calculated.");badge.textContent="No data";return;}badge.textContent=rows.some(x=>x.status==="short")?"Shopping required":"Inventory covered";el.innerHTML=`<div class="production-list">${rows.map(reqRow).join("")}</div>`;}
-function reqRow(x){const label={good:"Enough",low:"Low after bake",short:"Short",unknown:"Check units"}[x.status],cls=x.status==="short"?"production-stock-short":x.status==="low"||x.status==="unknown"?"production-stock-low":"production-stock-good";return`<div class="production-row"><div><strong>${esc(x.name)}</strong><small>Stock unit: ${esc(x.purchaseUnit)}</small></div><div class="production-row-value"><small>Need</small><strong>${displayQty(x.required,x.recipeUnit)}</strong></div><div class="production-row-value"><small>Have</small><strong>${x.convertible?displayQty(x.have,x.recipeUnit):"Unknown"}</strong></div><span class="production-stock-status ${cls}">${label}</span></div>`;}
+// A physical ingredient combining more than one contributor (e.g.
+// whole Eggs used directly by one recipe PLUS Egg Yolks derived from
+// the same physical Eggs by another) shows the breakdown underneath
+// its name -- purely explanatory; `required`/deduction always use the
+// combined total regardless of whether this line is shown.
+function breakdownLine(x){if(!x.breakdown||x.breakdown.length<2)return"";return `<small class="production-req-breakdown">${x.breakdown.map(b=>`${fmt(b.quantity)} ${esc(b.label)}`).join(" + ")}</small>`;}
+function reqRow(x){const label={good:"Enough",low:"Low after bake",short:"Short",unknown:"Check units"}[x.status],cls=x.status==="short"?"production-stock-short":x.status==="low"||x.status==="unknown"?"production-stock-low":"production-stock-good";return`<div class="production-row"><div><strong>${esc(x.name)}</strong><small>Stock unit: ${esc(x.purchaseUnit)}</small>${breakdownLine(x)}</div><div class="production-row-value"><small>Need</small><strong>${displayQty(x.required,x.recipeUnit)}</strong></div><div class="production-row-value"><small>Have</small><strong>${x.convertible?displayQty(x.have,x.recipeUnit):"Unknown"}</strong></div><span class="production-stock-status ${cls}">${label}</span></div>`;}
 function renderShopping(){const el=document.getElementById("shoppingList");el.innerHTML=plan.shortages.length?plan.shortages.map(x=>`<div class="production-shopping-row"><label><input type="checkbox"><span>${esc(x.name)}</span></label><strong>Buy ${displayQty(x.shortage,x.recipeUnit)}</strong></div>`).join(""):empty("Nothing needs to be purchased for this date.");}
 function renderPackaging(){const el=document.getElementById("packagingRequirements"),map=new Map(plan.combined.map(x=>[String(x.ingredientId),x]));el.innerHTML=plan.packagingReq.length?plan.packagingReq.map(x=>{const f=map.get(String(x.ingredientId)),cls=f?.status==="short"?"production-stock-short":f?.status==="low"?"production-stock-low":"production-stock-good",label=f?.status==="short"?"Short":f?.status==="low"?"Low after bake":"Enough";return`<div class="production-shopping-row"><span>${esc(x.name)}</span><strong>${displayQty(x.required,x.recipeUnit)}</strong>${f?`<span class="production-stock-status ${cls}">${label}</span>`:""}</div>`;}).join(""):empty("No packaging requirements calculated.");}
 function renderChecklist(){const saved=data.run?.checklist||{};document.getElementById("productionChecklist").innerHTML=`<div class="production-checklist">${CHECKLIST.map((x,i)=>`<label class="production-check-item ${saved[i]?"is-complete":""}"><input type="checkbox" ${saved[i]?"checked":""} onchange="updateChecklistItem(${i},this.checked,this)"><span>${esc(x)}</span></label>`).join("")}</div>`;}

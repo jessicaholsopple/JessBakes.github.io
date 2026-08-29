@@ -192,9 +192,14 @@ async function loadRecipeCosts() {
 ==================================================*/
 
 function updateInventoryOverview() {
-    const lowStock = ingredients.filter(isLowStock);
+    // Derived ingredients (Egg Yolks) are excluded from every purchased-
+    // stock aggregate here -- they are not a second physical item, just
+    // an alternate recipe-facing view of Eggs. Counting them here would
+    // double-count the same physical stock (see js/derived-ingredients.js).
+    const physical = DerivedIngredients.physicalOnly(ingredients);
+    const lowStock = physical.filter(isLowStock);
 
-    const inventoryValue = ingredients.reduce((sum, ingredient) => {
+    const inventoryValue = physical.reduce((sum, ingredient) => {
         const value =
             Number(ingredient.quantity_on_hand || 0) /
             Number(ingredient.purchase_size || 1) *
@@ -203,7 +208,7 @@ function updateInventoryOverview() {
         return sum + value;
     }, 0);
 
-    setText("ingredientCount", ingredients.length);
+    setText("ingredientCount", physical.length);
     setText("lowStockCount", lowStock.length);
     setText("inventoryValue", usd(inventoryValue));
     setText("recipeCount", recipes.length);
@@ -219,7 +224,10 @@ function renderLowStockAlerts() {
 
     if (!container) return;
 
-    const lowStock = ingredients.filter(isLowStock);
+    // A derived ingredient (Egg Yolks) is never independently low/high
+    // on stock -- it always exactly mirrors its source. Alerting on
+    // both would show two warnings for the same physical shortage.
+    const lowStock = DerivedIngredients.physicalOnly(ingredients).filter(isLowStock);
 
     if (!lowStock.length) {
         container.innerHTML = "<p>Everything is stocked.</p>";
@@ -340,7 +348,7 @@ ingredient${items.length===1?"":"s"}
 
 ${items
 .sort((a,b)=>a.name.localeCompare(b.name))
-.map(renderIngredientRow)
+.map(ingredient => DerivedIngredients.isDerived(ingredient) ? renderDerivedIngredientRow(ingredient) : renderIngredientRow(ingredient))
 .join("")}
 
 </div>
@@ -506,6 +514,116 @@ function renderIngredientRow(ingredient) {
 
 }
 
+/** Cost per one recipe/purchase unit (they're the same unit for every
+ * current derived ingredient -- Eggs/Egg Yolks are both "each"), used
+ * only for the derived-ingredient card's "Per-Yolk Cost" display.
+ * Does not attempt the general mass/volume/count unit conversion the
+ * recipe_costs view already owns -- this is a simple same-unit
+ * per-item price. */
+function costPerRecipeUnit(ingredient) {
+    const size = Number(ingredient.purchase_size || 0);
+    if (size <= 0) return 0;
+    return Number(ingredient.purchase_price || 0) / size;
+}
+
+/** A derived ingredient (Egg Yolks) is not a second, independently
+ * purchased item -- it is always exactly Eggs, viewed at a 1:1
+ * conversion (js/derived-ingredients.js / the ingredients table's
+ * derived_from_ingredient_id). This card shows that plainly: current
+ * availability and per-unit cost (both already correctly mirrored
+ * from the source by the database trigger), a clear "Derived from"
+ * label, and a single action that opens the SOURCE ingredient's own
+ * edit modal -- never a Restock button, never an independent Edit
+ * button, since restocking/editing Egg Yolks directly is never
+ * offered here (the database itself would also silently overwrite
+ * any such attempt back to the correct derived value, but the UI
+ * never presents the option in the first place). */
+function renderDerivedIngredientRow(ingredient) {
+
+    const source =
+        ingredients.find(item => item.id === ingredient.derived_from_ingredient_id);
+
+    const sourceName = source ? source.name : "its source ingredient";
+    const derivedSingular = IngredientNaming
+        ? IngredientNaming.singularize(ingredient.name)
+        : ingredient.name;
+    const sourceSingular = source
+        ? (IngredientNaming ? IngredientNaming.singularize(source.name) : source.name)
+        : "unit";
+
+    return `
+
+        <article class="ingredient-card ingredient-derived-card">
+
+            <div class="ingredient-card-header">
+
+                <div>
+
+                    <h3>${escapeHtml(ingredient.name)}</h3>
+
+                    <p>
+                        Derived from ${escapeHtml(sourceName)} — 1 ${escapeHtml(derivedSingular)} uses ${formatQuantity(ingredient.derived_factor)} ${escapeHtml(sourceSingular)}${Number(ingredient.derived_factor) === 1 ? "" : "s"}
+                    </p>
+
+                </div>
+
+                <div class="ingredient-status status-derived">
+
+                    Derived
+
+                </div>
+
+            </div>
+
+            <div class="ingredient-card-grid">
+
+                <div class="ingredient-stat">
+
+                    <span>Available</span>
+
+                    <strong>
+
+                        ${formatQuantity(ingredient.quantity_on_hand)}
+                        ${escapeHtml(ingredient.purchase_unit)}
+
+                    </strong>
+
+                </div>
+
+                <div class="ingredient-stat">
+
+                    <span>Per-Unit Cost</span>
+
+                    <strong>
+
+                        ${usd(costPerRecipeUnit(ingredient))}
+
+                    </strong>
+
+                </div>
+
+            </div>
+
+            <div class="ingredient-card-actions">
+
+                ${source ? `
+                <button
+                    class="edit-option-btn"
+                    onclick="openIngredientModal('${source.id}')">
+
+                    View ${escapeHtml(source.name)}
+
+                </button>
+                ` : ""}
+
+            </div>
+
+        </article>
+
+    `;
+
+}
+
 
 /*==================================================
     INGREDIENT MODAL
@@ -592,11 +710,27 @@ function buildIngredientModal() {
 }
 
 function openIngredientModal(id = null) {
-    populateIngredientSelects();
-
-    const ingredient = id
+    const target = id
         ? ingredients.find(item => String(item.id) === String(id))
         : null;
+
+    // A derived ingredient (Egg Yolks) has no independently-editable
+    // quantity/price/unit fields -- open its SOURCE's edit modal
+    // instead of a form whose numbers the database would silently
+    // overwrite anyway. Restocking/editing must happen through Eggs.
+    if (target && DerivedIngredients.isDerived(target)) {
+        const source = ingredients.find(item => item.id === target.derived_from_ingredient_id);
+        alert(
+            `${target.name} is derived from ${source ? source.name : "its source ingredient"} and can't be edited directly.` +
+            (source ? ` Opening ${source.name} instead.` : "")
+        );
+        if (source) openIngredientModal(source.id);
+        return;
+    }
+
+    populateIngredientSelects();
+
+    const ingredient = target;
 
     document.getElementById("ingredientModalTitle").textContent =
         ingredient ? "Edit Ingredient" : "Add Ingredient";
@@ -814,6 +948,18 @@ function openRestockModal(id) {
     const ingredient = ingredients.find(item => String(item.id) === String(id));
 
     if (!ingredient) return;
+
+    // Egg Yolks (or any derived ingredient) cannot be independently
+    // restocked -- restocking must happen through its source (Eggs).
+    if (DerivedIngredients.isDerived(ingredient)) {
+        const source = ingredients.find(item => item.id === ingredient.derived_from_ingredient_id);
+        alert(
+            `${ingredient.name} is derived from ${source ? source.name : "its source ingredient"} and can't be restocked directly.` +
+            (source ? ` Opening a restock for ${source.name} instead.` : "")
+        );
+        if (source) openRestockModal(source.id);
+        return;
+    }
 
     document.getElementById("restockIngredientId").value = ingredient.id;
     document.getElementById("restockIngredientName").textContent =
@@ -1134,6 +1280,17 @@ function closeRecipeModal() {
     document.getElementById("recipeModal").style.display = "none";
 }
 
+/** The recipe editor's ingredient dropdown must clearly distinguish a
+ * physical, independently-purchased ingredient from a derived one
+ * (Egg Yolks) so an admin picking an ingredient can see at a glance
+ * that "Egg Yolks" is not a second, independently-stocked item --
+ * without inventing a second editor or hiding it from the list. */
+function recipeIngredientOptionLabel(ingredient) {
+    if (!DerivedIngredients.isDerived(ingredient)) return ingredient.name;
+    const source = ingredients.find(item => item.id === ingredient.derived_from_ingredient_id);
+    return `${ingredient.name} — derived from ${source ? source.name : "another ingredient"}`;
+}
+
 function addRecipeIngredientRow(
     ingredientId = "",
     quantity = ""
@@ -1161,7 +1318,7 @@ function addRecipeIngredientRow(
 
             ${ingredients.map(ingredient => `
                 <option value="${ingredient.id}">
-                    ${escapeHtml(ingredient.name)}
+                    ${escapeHtml(recipeIngredientOptionLabel(ingredient))}
                 </option>
             `).join("")}
 
@@ -1496,7 +1653,7 @@ function renderShoppingList() {
 
     if (!container) return;
 
-    const needed = ingredients.filter(isLowStock);
+    const needed = DerivedIngredients.physicalOnly(ingredients).filter(isLowStock);
 
     if (!needed.length) {
         container.innerHTML = "<p>No shopping needed right now.</p>";
@@ -1504,6 +1661,9 @@ function renderShoppingList() {
     }
 
     container.innerHTML = needed.map(ingredient => {
+        // needed is already physical-only (see below) -- a derived
+        // ingredient (Egg Yolks) never generates its own line here;
+        // buying Eggs is what a low Egg Yolk availability actually means.
         const neededQuantity =
             Number(ingredient.minimum_quantity || 0) -
             Number(ingredient.quantity_on_hand || 0);

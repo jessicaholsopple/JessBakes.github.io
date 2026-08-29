@@ -415,6 +415,18 @@ function renderDetail() {
     }
 }
 
+// Count-family units (whole items, never weight/volume) read better
+// without a redundant unit word -- "4 Eggs" / "1 Egg", not "4 each
+// Eggs" / "1 each Eggs". Every other unit (g, kg, mL, cups, ...) keeps
+// showing its unit exactly as before ("250 g Butter"). Mirrors the
+// same count-unit family js/recipe-scaling.js and js/admin-
+// production.js already recognize.
+const RC_COUNT_UNITS = new Set(["each", "item", "items", "count", "piece", "pieces", "unit", "units"]);
+
+function isCountUnit(unit) {
+    return RC_COUNT_UNITS.has(String(unit || "").trim().toLowerCase());
+}
+
 function renderIngredientListHtml(ingredientRows, multiplier) {
     const rows = ingredientRows || [];
     if (!rows.length) {
@@ -426,6 +438,19 @@ function renderIngredientListHtml(ingredientRows, multiplier) {
         }
         const scaled = RecipeScaling.scaleQuantity(row.quantity, multiplier);
         const qtyText = scaled === null ? "—" : QuantityFormat.formatQuantity(scaled);
+
+        // A count-unit ingredient (Eggs, Egg Yolks, ...) shows just the
+        // quantity next to a grammatically correct singular/plural
+        // name -- the stored canonical name ("Eggs", "Egg Yolks") is
+        // never changed, only how it's displayed alongside this
+        // specific (possibly scaled) quantity.
+        if (row.ingredients.recipe_unit && isCountUnit(row.ingredients.recipe_unit)) {
+            const displayName = IngredientNaming
+                ? IngredientNaming.pluralDisplayName(row.ingredients.name, scaled)
+                : row.ingredients.name;
+            return `<li><span class="rc-ingredient-qty">${qtyText}</span><span class="rc-ingredient-name">${escapeHtml(displayName)}</span></li>`;
+        }
+
         const unit = row.ingredients.recipe_unit
             ? escapeHtml(row.ingredients.recipe_unit)
             : `<span class="rc-ingredient-missing-inline">no unit saved</span>`;

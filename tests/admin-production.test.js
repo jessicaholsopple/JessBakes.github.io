@@ -99,11 +99,20 @@ function baseRecipeIngredients() {
     return [
         { recipe_id: "r-smores", ingredient_id: "i-flour", quantity: "500" },
         { recipe_id: "r-smores", ingredient_id: "i-sugar", quantity: "200" },
+        // Mirrors the real, migrated S'mores Cookies: Egg Yolks (a
+        // Cookie-category recipe converted from whole Eggs).
+        { recipe_id: "r-smores", ingredient_id: "i-eggyolks", quantity: "4" },
         { recipe_id: "r-bbss", ingredient_id: "i-flour", quantity: "500" },
         { recipe_id: "r-snick", ingredient_id: "i-flour", quantity: "500" },
         { recipe_id: "r-straw", ingredient_id: "i-flour", quantity: "500" },
         { recipe_id: "r-brownie", ingredient_id: "i-sugar", quantity: "300" },
-        { recipe_id: "r-cinn", ingredient_id: "i-flour", quantity: "1000" }
+        // Mirrors the real, unchanged Classic Brownies: whole Eggs.
+        { recipe_id: "r-brownie", ingredient_id: "i-eggs", quantity: "5" },
+        { recipe_id: "r-cinn", ingredient_id: "i-flour", quantity: "1000" },
+        // Mirrors the real, migrated canonical Cinnamon Rolls: 1 whole
+        // Egg + 1 Egg Yolk (was 2 whole Eggs before the migration).
+        { recipe_id: "r-cinn", ingredient_id: "i-eggs", quantity: "1" },
+        { recipe_id: "r-cinn", ingredient_id: "i-eggyolks", quantity: "1" }
     ];
 }
 
@@ -113,7 +122,11 @@ function baseIngredients() {
         { id: "i-sugar", name: "Sugar", recipe_unit: "g", purchase_unit: "kg", quantity_on_hand: 50, minimum_quantity: 5, purchase_size: 1, purchase_price: 2 },
         { id: "i-bag-single", name: "Single Cookie Bag", recipe_unit: "each", purchase_unit: "each", quantity_on_hand: 500, minimum_quantity: 20, purchase_size: 1, purchase_price: 0.1 },
         { id: "i-bag6", name: "6 Pack Cookie Bags", recipe_unit: "each", purchase_unit: "each", quantity_on_hand: 50, minimum_quantity: 5, purchase_size: 1, purchase_price: 0.3 },
-        { id: "i-box12", name: "Pastry Boxes", recipe_unit: "each", purchase_unit: "each", quantity_on_hand: 20, minimum_quantity: 5, purchase_size: 1, purchase_price: 0.6 }
+        { id: "i-box12", name: "Pastry Boxes", recipe_unit: "each", purchase_unit: "each", quantity_on_hand: 20, minimum_quantity: 5, purchase_size: 1, purchase_price: 0.6 },
+        // Eggs (physical) / Egg Yolks (derived 1:1 from Eggs) -- shaped
+        // exactly like the real, migrated live data.
+        { id: "i-eggs", name: "Eggs", recipe_unit: "each", purchase_unit: "each", quantity_on_hand: 12, minimum_quantity: 4, purchase_size: 12, purchase_price: 3.79, derived_from_ingredient_id: null, derived_factor: null },
+        { id: "i-eggyolks", name: "Egg Yolks", recipe_unit: "each", purchase_unit: "each", quantity_on_hand: 12, minimum_quantity: 4, purchase_size: 12, purchase_price: 3.79, derived_from_ingredient_id: "i-eggs", derived_factor: 1 }
     ];
 }
 
@@ -149,7 +162,8 @@ function loadSandbox() {
         console,
         CurrencyConversion: require(path.join(ROOT, "js/currency-conversion.js")),
         SaleCalculations: require(path.join(ROOT, "js/sale-calculations.js")),
-        QuantityFormat: require(path.join(ROOT, "js/quantity-format.js"))
+        QuantityFormat: require(path.join(ROOT, "js/quantity-format.js")),
+        DerivedIngredients: require(path.join(ROOT, "js/derived-ingredients.js"))
     };
     vm.createContext(sandbox);
 
@@ -661,4 +675,104 @@ test("25b. batchRow omits the rounding note when the exact batch count is alread
     const sandbox = loadSandbox();
     const html = sandbox.__batchRow({ name: "S'mores Cookies", recipeUnits: 12, yieldQuantity: 12, yieldUnit: "item", batches: 1, notes: "" });
     assert.doesNotMatch(html, /Round up to/);
+});
+
+/* ==========================================
+   26+. Egg / Egg Yolk aggregation into one physical requirement
+   ========================================== */
+
+test("26. Egg Yolks (S'mores) and whole Eggs (Brownies) combine into ONE physical Eggs requirement line, not two", () => {
+    const sandbox = loadSandbox();
+    // 36 S'mores = 3 full batches (yield 12) => 3 * 4 = 12 Egg Yolks.
+    // 9 Brownies = 1 full batch (yield 9) => 1 * 5 = 5 whole Eggs.
+    // Combined physical requirement: 12 + 5 = 17 Eggs (the task's own example).
+    const o = order("o1", "2026-08-30", "Alex", [
+        standardItem("oi1", "m-smores", "S'mores", 36, 100),
+        standardItem("oi2", "m-brownie", "Classic Sea Salt Fudge Brownie", 9, 50)
+    ], 150);
+
+    const p = plan(sandbox, [o]);
+
+    const eggLines = p.combined.filter(x => x.name === "Eggs");
+    assert.equal(eggLines.length, 1, "Eggs and Egg Yolks must merge into exactly one requirement line");
+    assert.equal(eggLines[0].required, 17);
+    assert.equal(p.combined.some(x => x.name === "Egg Yolks"), false, "Egg Yolks must never appear as its own separate requirement line");
+});
+
+test("27. the combined Eggs line's breakdown shows both contributors without changing the merged total", () => {
+    const sandbox = loadSandbox();
+    const o = order("o1", "2026-08-30", "Alex", [
+        standardItem("oi1", "m-smores", "S'mores", 36, 100),
+        standardItem("oi2", "m-brownie", "Classic Sea Salt Fudge Brownie", 9, 50)
+    ], 150);
+
+    const p = plan(sandbox, [o]);
+    const eggLine = p.combined.find(x => x.name === "Eggs");
+
+    assert.ok(eggLine.breakdown.length >= 2, "expected both Eggs and Egg Yolks contributions in the breakdown");
+    const yolkEntry = eggLine.breakdown.find(b => b.label === "Egg Yolks");
+    const eggEntry = eggLine.breakdown.find(b => b.label === "Eggs");
+    assert.equal(yolkEntry.quantity, 12);
+    assert.equal(eggEntry.quantity, 5);
+    // The breakdown must always sum to the same combined total shown to
+    // the customer for purchasing/deduction -- never diverge from it.
+    const breakdownSum = eggLine.breakdown.reduce((s, b) => s + b.quantity, 0);
+    assert.equal(breakdownSum, eggLine.required);
+});
+
+test("28. canonical Cinnamon Rolls (1 Egg + 1 Egg Yolk) requires exactly 2 physical Eggs per full batch", () => {
+    const sandbox = loadSandbox();
+    // recipe_units_used on m-cinn is 4; r-cinn yield is 8 -- ordering 2
+    // Cinnamon Rolls gives recipeUnits = 2*4 = 8 = one full batch
+    // (multiplier 1), so 1 Egg + 1 Egg Yolk are both required at their
+    // full stored quantity -- 2 physical Eggs total.
+    const o = order("o1", "2026-08-30", "Alex", [standardItem("oi1", "m-cinn", "Classic Cinnamon Rolls", 2, 20)], 20);
+
+    const p = plan(sandbox, [o]);
+    const eggLine = p.combined.find(x => x.name === "Eggs");
+
+    assert.equal(eggLine.required, 2);
+    const yolkEntry = eggLine.breakdown.find(b => b.label === "Egg Yolks");
+    const eggEntry = eggLine.breakdown.find(b => b.label === "Eggs");
+    assert.equal(eggEntry.quantity, 1);
+    assert.equal(yolkEntry.quantity, 1);
+});
+
+test("29. a shortage check uses the COMBINED Egg requirement, never Egg Yolks checked independently against the same shared stock", () => {
+    const sandbox = loadSandbox();
+    // Only 12 Eggs on hand. Requiring 17 (5 direct + 12 via Egg Yolks)
+    // must show a real shortage of 5 -- if Egg Yolks were (wrongly)
+    // checked independently against the full 12 on hand, this would
+    // incorrectly show "enough" for both lines.
+    const o = order("o1", "2026-08-30", "Alex", [
+        standardItem("oi1", "m-smores", "S'mores", 36, 100),
+        standardItem("oi2", "m-brownie", "Classic Sea Salt Fudge Brownie", 9, 50)
+    ], 150);
+
+    const p = plan(sandbox, [o]);
+    const eggLine = p.combined.find(x => x.name === "Eggs");
+
+    assert.equal(eggLine.status, "short");
+    assert.equal(eggLine.shortage, 5);
+});
+
+test("30. cost calculation for a combined Eggs+Egg-Yolks requirement uses Eggs' own purchase price/size, never a separate Egg Yolk price", () => {
+    const sandbox = loadSandbox();
+    const o = order("o1", "2026-08-30", "Alex", [standardItem("oi1", "m-brownie", "Classic Sea Salt Fudge Brownie", 9, 50)], 50);
+
+    const p = plan(sandbox, [o]);
+    // 5 Eggs required, cost per egg = 3.79 / 12 (purchase_size 12, same unit).
+    const expectedEggCost = 5 * (3.79 / 12);
+    assert.ok(Math.abs(p.foodCost - (300 / 1000 * 2 + expectedEggCost)) < 0.001, `expected foodCost to include the Egg cost, got ${p.foodCost}`);
+});
+
+test("31. a recipe using only Egg Yolks (no direct Eggs) still resolves to a physical Eggs deduction line with the correct id", () => {
+    const sandbox = loadSandbox();
+    const o = order("o1", "2026-08-30", "Alex", [standardItem("oi1", "m-smores", "S'mores", 12, 30)], 30);
+
+    const p = plan(sandbox, [o]);
+    const eggLine = p.combined.find(x => x.name === "Eggs");
+    assert.ok(eggLine, "an Egg-Yolks-only recipe must still produce an Eggs requirement line");
+    assert.equal(eggLine.ingredientId, "i-eggs");
+    assert.equal(eggLine.required, 4);
 });

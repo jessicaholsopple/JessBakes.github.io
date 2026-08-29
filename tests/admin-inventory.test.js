@@ -38,7 +38,16 @@ function baseIngredients() {
     return [
         { id: 10, name: "Semi Sweet Chocolate Chips", category_id: 3, supplier_id: 1, purchase_unit: "g", recipe_unit: "g", purchase_size: 680, purchase_price: 8.08, quantity_on_hand: 680, minimum_quantity: 170, notes: "" },
         { id: 20, name: "Test Flour", category_id: 1, supplier_id: 1, purchase_unit: "lb", recipe_unit: "g", purchase_size: 5, purchase_price: 3.28, quantity_on_hand: 18, minimum_quantity: 15, notes: "" },
-        { id: 30, name: "Test Low Stock Sugar", category_id: 2, supplier_id: 1, purchase_unit: "g", recipe_unit: "g", purchase_size: 1000, purchase_price: 2.00, quantity_on_hand: 100, minimum_quantity: 200, notes: "" }
+        { id: 30, name: "Test Low Stock Sugar", category_id: 2, supplier_id: 1, purchase_unit: "g", recipe_unit: "g", purchase_size: 1000, purchase_price: 2.00, quantity_on_hand: 100, minimum_quantity: 200, notes: "" },
+        // Egg / Egg Yolk fixtures -- shaped exactly like the real,
+        // migrated live data (js/derived-ingredients.js): Egg Yolks
+        // (id 57) is derived 1:1 from Eggs (id 6), and its own
+        // quantity_on_hand/minimum_quantity/purchase_size/
+        // purchase_price already mirror Eggs' (as the DB trigger
+        // guarantees live) -- these tests exercise the APPLICATION
+        // code's own exclusion/labeling logic, not the trigger itself.
+        { id: 6, name: "Eggs", category_id: 4, supplier_id: 1, purchase_unit: "each", recipe_unit: "each", purchase_size: 12, purchase_price: 3.79, quantity_on_hand: 12, minimum_quantity: 4, notes: "", derived_from_ingredient_id: null, derived_factor: null },
+        { id: 57, name: "Egg Yolks", category_id: 4, supplier_id: null, purchase_unit: "each", recipe_unit: "each", purchase_size: 12, purchase_price: 3.79, quantity_on_hand: 12, minimum_quantity: 4, notes: "Derived 1:1 from Eggs.", derived_from_ingredient_id: 6, derived_factor: 1 }
     ];
 }
 
@@ -46,7 +55,8 @@ function baseCategories() {
     return [
         { id: 1, name: "Pantry", sort_order: 1 },
         { id: 2, name: "Baking", sort_order: 2 },
-        { id: 3, name: "Chocolate", sort_order: 3 }
+        { id: 3, name: "Chocolate", sort_order: 3 },
+        { id: 4, name: "Dairy", sort_order: 4 }
     ];
 }
 
@@ -61,6 +71,38 @@ function baseRecipes() {
             yield_quantity: 12, yield_unit: "item", notes: "",
             recipe_ingredients: [
                 { id: 100, recipe_id: 7, ingredient_id: 10, quantity: 140, ingredients: { id: 10, name: "Semi Sweet Chocolate Chips" } }
+            ],
+            recipe_components: []
+        },
+        // Mirrors the real, migrated S'mores Cookies: a Cookie-category
+        // recipe using Egg Yolks (converted from whole Eggs, same
+        // numerical quantity preserved).
+        {
+            id: 22, name: "Test S'mores Cookies", category: "Cookie",
+            yield_quantity: 12, yield_unit: "item", notes: "",
+            recipe_ingredients: [
+                { id: 200, recipe_id: 22, ingredient_id: 57, quantity: 4, ingredients: { id: 57, name: "Egg Yolks" } }
+            ],
+            recipe_components: []
+        },
+        // Mirrors the real, migrated canonical Cinnamon Rolls: 1 whole
+        // Egg + 1 Egg Yolk (was 2 whole Eggs before the migration).
+        {
+            id: 9, name: "Test Cinnamon Rolls", category: "Dessert",
+            yield_quantity: 8, yield_unit: "item", notes: "",
+            recipe_ingredients: [
+                { id: 201, recipe_id: 9, ingredient_id: 6, quantity: 1, ingredients: { id: 6, name: "Eggs" } },
+                { id: 202, recipe_id: 9, ingredient_id: 57, quantity: 1, ingredients: { id: 57, name: "Egg Yolks" } }
+            ],
+            recipe_components: []
+        },
+        // Mirrors the real, unchanged Classic Brownies: whole Eggs,
+        // never converted.
+        {
+            id: 21, name: "Test Classic Brownies", category: "Dessert",
+            yield_quantity: 12, yield_unit: "item", notes: "",
+            recipe_ingredients: [
+                { id: 203, recipe_id: 21, ingredient_id: 6, quantity: 5, ingredients: { id: 6, name: "Eggs" } }
             ],
             recipe_components: []
         }
@@ -176,7 +218,9 @@ function loadSandbox({ ingredients, categories, suppliers, recipes, recipeCosts 
         requireAuth: async () => {},
         setupLogout: () => {},
         RecipeCosting: require(path.join(ROOT, "js/recipe-costing.js")),
-        QuantityFormat: require(path.join(ROOT, "js/quantity-format.js"))
+        QuantityFormat: require(path.join(ROOT, "js/quantity-format.js")),
+        DerivedIngredients: require(path.join(ROOT, "js/derived-ingredients.js")),
+        IngredientNaming: require(path.join(ROOT, "js/ingredient-naming.js"))
     };
     vm.createContext(sandbox);
 
@@ -196,6 +240,7 @@ function loadSandbox({ ingredients, categories, suppliers, recipes, recipeCosts 
         this.__openIngredientModal = openIngredientModal;
         this.__closeIngredientModal = closeIngredientModal;
         this.__openRestockModal = openRestockModal;
+        this.__recipeIngredientOptionLabel = recipeIngredientOptionLabel;
         this.__getIngredients = () => ingredients;
         this.__getRecipeCost = getRecipeCost;
         this.__openRecipeModal = openRecipeModal;
@@ -271,7 +316,7 @@ test("5. isLowStock compares raw quantity_on_hand <= minimum_quantity, not the d
     assert.equal(sandbox.__isLowStock({ quantity_on_hand: 170, minimum_quantity: 170 }), true);
 });
 
-test("6. inventory value totals from raw purchase_price/purchase_size/quantity_on_hand, never a display string", async () => {
+test("6. inventory value totals from raw purchase_price/purchase_size/quantity_on_hand, never a display string, and counts Eggs exactly once despite Egg Yolks also being present", async () => {
     const { sandbox, elements } = loadSandbox();
     await sandbox.__loadInventory();
     sandbox.__updateInventoryOverview();
@@ -279,10 +324,13 @@ test("6. inventory value totals from raw purchase_price/purchase_size/quantity_o
     // Semi Sweet Chocolate Chips: 680 / 680 * 8.08 = 8.08
     // Test Flour: 18 / 5 * 3.28 = 11.808
     // Test Low Stock Sugar: 100 / 1000 * 2.00 = 0.2
-    const expected = (680 / 680 * 8.08) + (18 / 5 * 3.28) + (100 / 1000 * 2.00);
+    // Eggs: 12 / 12 * 3.79 = 3.79 -- counted ONCE.
+    // Egg Yolks (derived, same physical eggs): must NOT add another 3.79.
+    const expected = (680 / 680 * 8.08) + (18 / 5 * 3.28) + (100 / 1000 * 2.00) + (12 / 12 * 3.79);
     const displayed = elements.get("inventoryValue").textContent;
     const displayedNumber = Number(displayed.replace(/[^0-9.]/g, ""));
     assert.ok(Math.abs(displayedNumber - expected) < 0.01, `expected ~$${expected.toFixed(2)}, got ${displayed}`);
+    assert.ok(Math.abs(displayedNumber - (expected + 3.79)) > 0.01, "Egg Yolks must not double-count Eggs' value");
 });
 
 /* ==========================================
@@ -590,4 +638,109 @@ test("26. handleRecipeDeepLink safely no-ops for a missing/unknown recipe id -- 
     sandbox.window.location.search = "";
     sandbox.__handleRecipeDeepLink();
     assert.equal(sandbox.document.getElementById("recipeModal").style.display, undefined, "no ?recipe param must never open the modal");
+});
+
+/* ==========================================
+   27+. Egg / Egg Yolk derived-ingredient handling
+   ========================================== */
+
+test("27. Egg Yolks renders its own clearly-labeled derived card, showing availability mirrored from Eggs and a link to view Eggs", async () => {
+    const { sandbox, elements } = loadSandbox();
+    await sandbox.__loadInventory();
+    sandbox.__renderIngredients();
+
+    const html = elements.get("ingredientsTable").innerHTML;
+    assert.match(html, /Egg Yolks/);
+    assert.match(html, /Derived from Eggs/);
+    assert.match(html, /1 Egg Yolk uses 1 Egg\b/);
+    const collapsed = html.replace(/\s+/g, " ");
+    assert.match(collapsed, /> 12 each </, "available yolks must show the mirrored 12, matching Eggs");
+    assert.match(html, /View Eggs/);
+});
+
+test("28. Egg Yolks' card has no Restock button and no independent Edit button -- only a link to Eggs", async () => {
+    const { sandbox, elements } = loadSandbox();
+    await sandbox.__loadInventory();
+    sandbox.__renderIngredients();
+
+    const html = elements.get("ingredientsTable").innerHTML;
+    const derivedCardMatch = html.match(/<article class="ingredient-card ingredient-derived-card">[\s\S]*?<\/article>/);
+    assert.ok(derivedCardMatch, "expected a rendered derived ingredient card");
+    const cardHtml = derivedCardMatch[0];
+    assert.doesNotMatch(cardHtml, /openRestockModal/);
+    assert.doesNotMatch(cardHtml, />\s*Edit\s*</);
+    assert.doesNotMatch(cardHtml, /Delete/);
+});
+
+test("29. ingredientCount, lowStockCount, and inventoryValue never count Egg Yolks as a second purchased item", async () => {
+    const { sandbox, elements } = loadSandbox();
+    await sandbox.__loadInventory();
+    sandbox.__updateInventoryOverview();
+
+    // 5 physical ingredients in the fixture set (Chocolate Chips, Flour,
+    // Sugar, Eggs) -- Egg Yolks (derived) must not add a 6th.
+    assert.equal(elements.get("ingredientCount").textContent, 4);
+});
+
+test("30. attempting to open the Edit modal for Egg Yolks redirects to Eggs instead, with an explanatory alert -- it never opens an editable form for the derived row", async () => {
+    const { sandbox, elements, alertCalls } = loadSandbox();
+    await sandbox.__loadInventory();
+
+    sandbox.__openIngredientModal("57");
+
+    assert.equal(alertCalls.length, 1);
+    assert.match(alertCalls[0], /derived from Eggs/i);
+    // The modal that actually opened must be Eggs' (id 6), not Egg
+    // Yolks' (id 57) -- proven by the populated form field.
+    assert.equal(elements.get("ingredientId").value, 6);
+    assert.equal(elements.get("ingredientName").value, "Eggs");
+});
+
+test("31. attempting to restock Egg Yolks redirects to restocking Eggs instead, with an explanatory alert", async () => {
+    const { sandbox, elements, alertCalls } = loadSandbox();
+    await sandbox.__loadInventory();
+
+    sandbox.__openRestockModal("57");
+
+    assert.equal(alertCalls.length, 1);
+    assert.match(alertCalls[0], /derived from Eggs/i);
+    assert.equal(elements.get("restockIngredientId").value, 6);
+});
+
+test("32. the recipe editor's ingredient dropdown clearly distinguishes Egg Yolks as derived from Eggs, never as an ordinary independent ingredient", async () => {
+    const { sandbox } = loadSandbox();
+    await sandbox.__loadInventory();
+
+    const eggs = sandbox.__getIngredients().find(i => i.name === "Eggs");
+    const yolks = sandbox.__getIngredients().find(i => i.name === "Egg Yolks");
+
+    assert.equal(sandbox.__recipeIngredientOptionLabel(eggs), "Eggs", "a physical ingredient's label is unchanged");
+    assert.equal(sandbox.__recipeIngredientOptionLabel(yolks), "Egg Yolks — derived from Eggs");
+});
+
+test("33. cookie recipes (Egg Yolks) preserve the exact former Egg quantity: S'mores uses 4 Egg Yolks", async () => {
+    const { sandbox } = loadSandbox();
+    await sandbox.__loadInventory();
+
+    const smores = baseRecipes().find(r => r.name === "Test S'mores Cookies");
+    const eggRow = smores.recipe_ingredients.find(ri => ri.ingredients.name === "Egg Yolks");
+    assert.ok(eggRow, "S'mores must use Egg Yolks");
+    assert.equal(eggRow.quantity, 4, "the numeric quantity must be unchanged from the former 4 whole Eggs");
+});
+
+test("34. the canonical Cinnamon Rolls recipe uses exactly 1 Egg and 1 Egg Yolk (never 2 of either)", async () => {
+    const cinnamonRolls = baseRecipes().find(r => r.name === "Test Cinnamon Rolls");
+    const eggRow = cinnamonRolls.recipe_ingredients.find(ri => ri.ingredients.name === "Eggs");
+    const yolkRow = cinnamonRolls.recipe_ingredients.find(ri => ri.ingredients.name === "Egg Yolks");
+    assert.equal(eggRow.quantity, 1);
+    assert.equal(yolkRow.quantity, 1);
+    assert.equal(cinnamonRolls.recipe_ingredients.length, 2, "exactly two egg-related rows, no duplication");
+});
+
+test("35. Brownies retain their original whole-Egg quantity, completely unaffected by the Egg Yolk migration", async () => {
+    const brownies = baseRecipes().find(r => r.name === "Test Classic Brownies");
+    const eggRow = brownies.recipe_ingredients.find(ri => ri.ingredients.name === "Eggs");
+    assert.ok(eggRow, "Brownies must still use whole Eggs, never Egg Yolks");
+    assert.equal(eggRow.quantity, 5);
+    assert.equal(brownies.recipe_ingredients.some(ri => ri.ingredients.name === "Egg Yolks"), false);
 });

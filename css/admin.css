@@ -2535,6 +2535,20 @@ body {
     color: #b22626;
 }
 
+.status-derived {
+    background: #eee7f5;
+    color: #5b3f8f;
+}
+
+/* A derived ingredient (e.g. Egg Yolks) is never independently
+   restockable/editable -- a subtle dashed border distinguishes its
+   card from a normal, independently-purchased ingredient at a
+   glance, without hiding it or making it look broken. */
+.ingredient-derived-card {
+    border-style: dashed;
+    background: #fdfcfb;
+}
+
 .ingredient-card-grid {
     display: grid;
     grid-template-columns: repeat(2,1fr);
