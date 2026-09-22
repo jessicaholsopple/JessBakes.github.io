@@ -192,7 +192,10 @@ begin
 
   -- 3) No conflicts -- atomic snapshot. Disabled draft rows are never
   --    copied, so a disabled row can never accidentally go live.
-  delete from public.theme_schedules_published;
+  --    `where true` is required -- this project's hosted Postgres
+  --    rejects a DELETE/UPDATE with no WHERE clause at all, even
+  --    inside a SECURITY DEFINER function body.
+  delete from public.theme_schedules_published where true;
 
   insert into public.theme_schedules_published (
     theme_key, label, enabled, recurrence_type,
@@ -218,7 +221,8 @@ begin
 
   update public.theme_state
   set last_published_at = now(),
-      last_published_by = coalesce(auth.jwt() ->> 'email', 'admin');
+      last_published_by = coalesce(auth.jwt() ->> 'email', 'admin')
+  where true;
 
   return jsonb_build_object('ok', true, 'publishedCount', v_published_count);
 end;
@@ -246,7 +250,7 @@ begin
     raise exception 'Not authorized';
   end if;
 
-  delete from public.theme_schedules;
+  delete from public.theme_schedules where true;
 
   insert into public.theme_schedules (
     theme_key, label, enabled, recurrence_type,

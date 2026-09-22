@@ -4671,6 +4671,17 @@ html {
     margin-top: 12px;
 }
 
+/* The site-wide .form-group rule sets display:flex, which -- being
+   an author-origin rule -- overrides the UA stylesheet's [hidden]
+   { display: none } regardless of selector specificity (CSS cascade
+   origin beats specificity). Without this, updateScheduleRowVisibility()
+   setting .hidden = true on a recurrence-type field group had no
+   visible effect. Scoped to .theme-schedule-row so it can't affect
+   any [hidden] usage elsewhere on the site. */
+.theme-schedule-row [hidden] {
+    display: none !important;
+}
+
 /* ===========================
    THEMES admin: overlap warnings + timeline
 =========================== */
