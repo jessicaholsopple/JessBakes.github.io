@@ -3,11 +3,25 @@
    ==========================================
 
    Applies whichever theme theme_state.resolved_theme_key currently
-   holds to THIS page: a body.theme-<key> class (drives the CSS
-   custom-property accents in css/themes.css) plus 1-2 small,
-   non-interactive decorative mounts injected fresh by this script --
-   never by editing existing page markup, so decorations can never
-   land on top of nav/products/prices/buttons/forms by construction.
+   holds to THIS page: a body.theme-<key> class (drives the full
+   per-theme palette + real sourced artwork in css/themes.css) plus a
+   small set of empty, non-interactive decorative mounts injected
+   fresh by this script -- never by editing existing page markup, so
+   decorations can never land on top of nav/products/prices/buttons/
+   forms by construction. This script only ever creates new, empty,
+   aria-hidden elements; it never alters, removes, or restyles any
+   existing element's content. All actual artwork (which image goes
+   where, at what size/position/opacity) is chosen entirely by
+   css/themes.css's per-theme `background-image` rules -- this file
+   just mounts the anonymous hooks those rules target:
+     - .theme-hero-decor: one mount, placed inside the page's hero
+       section (.hero or .page-hero, whichever exists) for the
+       prominent seasonal composition.
+     - .theme-decor-mount.theme-decor-top / -bottom: two small
+       corner accents, present on every page (unchanged from Phase 2).
+   Section-divider, Menu-category-heading, ballot, and footer artwork
+   need no JS mount at all -- css/themes.css decorates those directly
+   via ::before/::after on the existing (untouched) elements.
 
    This script does NOT compute the schedule itself -- it only ever
    reads theme_state's already-resolved columns (a single cheap
@@ -118,7 +132,7 @@ function prefersReducedMotion() {
 
 function applyTheme(resolved) {
     const key = resolved.theme_key;
-    if (!Object.prototype.hasOwnProperty.call(THEME_DECOR, key)) {
+    if (!Object.prototype.hasOwnProperty.call(THEME_KEYS, key)) {
         // Unrecognized theme_key (e.g. a future catalog entry this
         // shipped copy doesn't know how to decorate yet) -- fail safe
         // to Classic rather than adding a class with no matching CSS.
@@ -136,128 +150,46 @@ function applyTheme(resolved) {
     // reduced-motion additionally hides it outright, since some users
     // find any persistent on-screen shape distracting, motion or not.
     if (!prefersReducedMotion() && resolved.graphics_visibility !== "minimal") {
-        mountThemeDecor(key);
+        mountThemeDecor();
     }
 }
 
 /** Injects fresh, empty, non-interactive mount elements -- never
- *  touches existing page markup. .theme-decor-mount + its position
- *  modifier classes are styled entirely in css/themes.css, scoped so
- *  they can never overlap nav/content/forms (see that file's header
- *  comment for the enforced forbidden-selector list). */
-function mountThemeDecor(key) {
-    const svg = THEME_DECOR[key];
-    if (!svg) return;
+ *  touches existing page markup. .theme-decor-mount /
+ *  .theme-hero-decor and their modifier classes are styled entirely
+ *  in css/themes.css (which per-theme `background-image` to show is
+ *  a pure CSS decision), scoped so they can never overlap nav/
+ *  content/forms (see that file's header comment for the enforced
+ *  selector list). */
+function mountThemeDecor() {
+    const heroSection = document.querySelector(".hero, .page-hero");
+    if (heroSection) {
+        const heroMount = document.createElement("div");
+        heroMount.className = "theme-hero-decor";
+        heroMount.setAttribute("aria-hidden", "true");
+        heroSection.insertBefore(heroMount, heroSection.firstChild);
+    }
 
     ["theme-decor-top", "theme-decor-bottom"].forEach((positionClass) => {
         const mount = document.createElement("div");
         mount.className = "theme-decor-mount " + positionClass;
         mount.setAttribute("aria-hidden", "true");
-        mount.innerHTML = svg;
         document.body.appendChild(mount);
     });
 }
 
 /* ==========================================
-   DECOR CATALOG -- one small inline SVG per theme, muted and simple
-   (line/shape art, never full-color clipart), rendered in
-   `currentColor` so css/themes.css's per-theme accent variable
-   controls its color. Adding a future custom theme means adding one
-   entry here (plus its CSS block) -- no scheduling-system change.
+   Every catalog theme key this shipped copy knows how to decorate.
+   The actual artwork (which real, licensed image -- see
+   images/themes/ARTWORK-CREDITS.md -- appears in the hero, corners,
+   section dividers, menu headings, ballot, and footer) is chosen
+   entirely by css/themes.css's `body.theme-<key>` rules; this file
+   only needs to know a key is valid before adding the class. Adding
+   a future custom theme means adding one key here plus its CSS block
+   -- no scheduling-system change.
    ========================================== */
-const THEME_DECOR = {
-    spring: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <g fill="currentColor" opacity="0.85">
-            <circle cx="50" cy="30" r="14"/><circle cx="68" cy="42" r="14"/>
-            <circle cx="61" cy="63" r="14"/><circle cx="39" cy="63" r="14"/>
-            <circle cx="32" cy="42" r="14"/>
-        </g>
-        <circle cx="50" cy="46" r="8" fill="#fff8ef" opacity="0.9"/>
-    </svg>`,
-
-    summer: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <g stroke="currentColor" stroke-width="6" stroke-linecap="round">
-            <line x1="50" y1="6" x2="50" y2="22"/><line x1="50" y1="78" x2="50" y2="94"/>
-            <line x1="6" y1="50" x2="22" y2="50"/><line x1="78" y1="50" x2="94" y2="50"/>
-            <line x1="19" y1="19" x2="30" y2="30"/><line x1="70" y1="70" x2="81" y2="81"/>
-            <line x1="81" y1="19" x2="70" y2="30"/><line x1="30" y1="70" x2="19" y2="81"/>
-        </g>
-        <circle cx="50" cy="50" r="18" fill="currentColor"/>
-    </svg>`,
-
-    autumn: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <path d="M50 12 C70 22 82 42 78 62 C74 82 58 92 50 92 C42 92 26 82 22 62 C18 42 30 22 50 12 Z" fill="currentColor" opacity="0.85"/>
-        <path d="M50 20 L50 88" stroke="#fff8ef" stroke-width="3" opacity="0.5"/>
-        <path d="M50 92 L44 100" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
-    </svg>`,
-
-    winter: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <g stroke="currentColor" stroke-width="5" stroke-linecap="round">
-            <line x1="50" y1="8" x2="50" y2="92"/>
-            <line x1="14" y1="29" x2="86" y2="71"/>
-            <line x1="14" y1="71" x2="86" y2="29"/>
-            <line x1="50" y1="26" x2="40" y2="18"/><line x1="50" y1="26" x2="60" y2="18"/>
-            <line x1="50" y1="74" x2="40" y2="82"/><line x1="50" y1="74" x2="60" y2="82"/>
-        </g>
-    </svg>`,
-
-    new_years: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <g stroke="currentColor" stroke-width="5" stroke-linecap="round">
-            <line x1="50" y1="10" x2="50" y2="28"/><line x1="50" y1="72" x2="50" y2="90"/>
-            <line x1="10" y1="50" x2="28" y2="50"/><line x1="72" y1="50" x2="90" y2="50"/>
-            <line x1="22" y1="22" x2="34" y2="34"/><line x1="66" y1="66" x2="78" y2="78"/>
-            <line x1="78" y1="22" x2="66" y2="34"/><line x1="34" y1="66" x2="22" y2="78"/>
-        </g>
-        <circle cx="50" cy="50" r="7" fill="currentColor"/>
-        <circle cx="78" cy="30" r="4" fill="currentColor" opacity="0.7"/>
-        <circle cx="24" cy="70" r="4" fill="currentColor" opacity="0.7"/>
-    </svg>`,
-
-    valentines: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <path d="M50 88 C20 64 8 44 8 28 C8 12 22 4 34 10 C42 14 48 22 50 28 C52 22 58 14 66 10 C78 4 92 12 92 28 C92 44 80 64 50 88 Z" fill="currentColor" opacity="0.85"/>
-    </svg>`,
-
-    st_patricks: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <g fill="currentColor" opacity="0.85">
-            <path d="M50 50 C50 34 38 22 26 24 C14 26 10 40 22 48 C30 54 42 54 50 50 Z"/>
-            <path d="M50 50 C50 34 62 22 74 24 C86 26 90 40 78 48 C70 54 58 54 50 50 Z"/>
-            <path d="M50 50 C34 50 22 38 24 26 C26 14 40 10 48 22 C54 30 54 42 50 50 Z"/>
-        </g>
-        <line x1="50" y1="50" x2="50" y2="90" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
-    </svg>`,
-
-    easter: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <ellipse cx="50" cy="54" rx="30" ry="40" fill="currentColor" opacity="0.85"/>
-        <path d="M22 46 Q35 36 50 46 T78 46" stroke="#fff8ef" stroke-width="4" fill="none" opacity="0.6"/>
-        <path d="M20 62 Q35 52 50 62 T80 62" stroke="#fff8ef" stroke-width="4" fill="none" opacity="0.6"/>
-    </svg>`,
-
-    fourth_of_july: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <polygon points="50,6 61,38 95,38 68,58 79,92 50,72 21,92 32,58 5,38 39,38" fill="currentColor" opacity="0.85"/>
-    </svg>`,
-
-    halloween: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <g fill="currentColor" opacity="0.85">
-            <path d="M50 40 C40 20 10 18 4 34 C14 32 26 36 34 46 C22 44 10 50 8 60 C20 54 34 54 42 60 C46 66 54 66 58 60 C66 54 80 54 92 60 C90 50 78 44 66 46 C74 36 86 32 96 34 C90 18 60 20 50 40 Z"/>
-            <circle cx="46" cy="38" r="3" fill="#fff8ef"/><circle cx="54" cy="38" r="3" fill="#fff8ef"/>
-        </g>
-    </svg>`,
-
-    thanksgiving: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <g fill="currentColor" opacity="0.85">
-            <ellipse cx="50" cy="64" rx="24" ry="26"/>
-            <path d="M26 46 Q50 28 74 46 Q74 34 50 30 Q26 34 26 46 Z"/>
-        </g>
-        <line x1="50" y1="30" x2="50" y2="18" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
-    </svg>`,
-
-    christmas: `<svg viewBox="0 0 100 100" width="100%" height="100%">
-        <g fill="currentColor" opacity="0.85">
-            <path d="M50 50 C30 40 20 20 30 8 C40 20 46 36 50 50 Z"/>
-            <path d="M50 50 C70 40 80 20 70 8 C60 20 54 36 50 50 Z"/>
-        </g>
-        <g fill="#c0392b" opacity="0.9">
-            <circle cx="44" cy="58" r="6"/><circle cx="56" cy="58" r="6"/><circle cx="50" cy="68" r="6"/>
-        </g>
-    </svg>`
+const THEME_KEYS = {
+    spring: true, summer: true, autumn: true, winter: true,
+    new_years: true, valentines: true, st_patricks: true, easter: true,
+    fourth_of_july: true, halloween: true, thanksgiving: true, christmas: true
 };

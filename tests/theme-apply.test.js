@@ -25,7 +25,7 @@ function read(relPath) {
     return fs.readFileSync(path.join(ROOT, relPath), "utf8");
 }
 
-function loadThemeApplySandbox({ search = "", resolvedRow = null, error = null, reducedMotion = false, hang = false } = {}) {
+function loadThemeApplySandbox({ search = "", resolvedRow = null, error = null, reducedMotion = false, hang = false, hasHero = true } = {}) {
     const addedClasses = [];
     const cssProps = {};
     const appendedMounts = [];
@@ -40,10 +40,22 @@ function loadThemeApplySandbox({ search = "", resolvedRow = null, error = null, 
         style: { setProperty: (k, v) => { cssProps[k] = v; } }
     };
 
+    // Stands in for whichever hero-like section (index.html's .hero or
+    // the other public pages' .page-hero) theme-apply.js finds via
+    // querySelector -- insertBefore is recorded into the same
+    // appendedMounts list as the two corner mounts so tests can assert
+    // on total decor-mount count regardless of which insertion API
+    // placed it.
+    const heroSection = { insertBefore: (el) => appendedMounts.push(el), firstChild: null };
+
     const fakeDocument = {
         body,
         documentElement,
         addEventListener: () => {},
+        querySelector: (selector) => {
+            if (selector !== ".hero, .page-hero") throw new Error("Unexpected selector: " + selector);
+            return hasHero ? heroSection : null;
+        },
         createElement: (tag) => ({
             tagName: tag,
             className: "",
@@ -86,7 +98,7 @@ function loadThemeApplySandbox({ search = "", resolvedRow = null, error = null, 
         this.__initThemeApply = initThemeApply;
         this.__parseThemePreviewParams = parseThemePreviewParams;
         this.__clampIntensity = clampIntensity;
-        this.__THEME_DECOR = THEME_DECOR;
+        this.__THEME_KEYS = THEME_KEYS;
         `
     ].join("\n");
 
@@ -127,9 +139,24 @@ test("3. a valid resolved theme adds body.theme-<key> and sets the CSS custom pr
     assert.equal(cssProps["--theme-graphics"], "normal");
 });
 
-test("4. a valid resolved theme with normal graphics mounts two decor elements", async () => {
+test("4. a valid resolved theme with normal graphics mounts the hero composition plus two corner decor elements", async () => {
     const { sandbox, appendedMounts } = loadThemeApplySandbox({
         resolvedRow: { resolved_theme_key: "christmas", resolved_accent_intensity: 1, resolved_graphics_visibility: "normal" }
+    });
+
+    await sandbox.__initThemeApply();
+
+    assert.equal(appendedMounts.length, 3);
+    const heroMounts = appendedMounts.filter(m => m.className === "theme-hero-decor");
+    const cornerMounts = appendedMounts.filter(m => m.className.includes("theme-decor-mount"));
+    assert.equal(heroMounts.length, 1);
+    assert.equal(cornerMounts.length, 2);
+});
+
+test("4b. on a page with no .hero/.page-hero section, only the two corner decor elements mount (no hero mount)", async () => {
+    const { sandbox, appendedMounts } = loadThemeApplySandbox({
+        resolvedRow: { resolved_theme_key: "christmas", resolved_accent_intensity: 1, resolved_graphics_visibility: "normal" },
+        hasHero: false
     });
 
     await sandbox.__initThemeApply();
@@ -232,15 +259,50 @@ test("13. sw.js's admin-only STATIC_ALLOWLIST never caches css/themes.css or js/
     assert.doesNotMatch(allowlistBlock, /theme-apply\.js/);
 });
 
-test("12. THEME_DECOR has an entry for every one of the 12 non-Classic catalog themes", () => {
+const EXPECTED_THEME_KEYS = [
+    "spring", "summer", "autumn", "winter", "new_years", "valentines",
+    "st_patricks", "easter", "fourth_of_july", "halloween", "thanksgiving", "christmas"
+];
+
+test("12. THEME_KEYS recognizes exactly the 12 non-Classic catalog themes", () => {
     const { sandbox } = loadThemeApplySandbox({});
-    const expectedKeys = [
-        "spring", "summer", "autumn", "winter", "new_years", "valentines",
-        "st_patricks", "easter", "fourth_of_july", "halloween", "thanksgiving", "christmas"
-    ];
-    for (const key of expectedKeys) {
-        assert.ok(Object.prototype.hasOwnProperty.call(sandbox.__THEME_DECOR, key), `missing decor for ${key}`);
-        assert.match(sandbox.__THEME_DECOR[key], /<svg/);
+    for (const key of EXPECTED_THEME_KEYS) {
+        assert.ok(Object.prototype.hasOwnProperty.call(sandbox.__THEME_KEYS, key), `missing THEME_KEYS entry for ${key}`);
     }
-    assert.equal(Object.keys(sandbox.__THEME_DECOR).length, expectedKeys.length);
+    assert.equal(Object.keys(sandbox.__THEME_KEYS).length, EXPECTED_THEME_KEYS.length);
+});
+
+test("14. css/themes.css defines a real, existing local image for every theme's hero composition and every image/themes/ url() it references actually exists on disk", () => {
+    const css = read("css/themes.css");
+
+    for (const key of EXPECTED_THEME_KEYS) {
+        const bodyBlockMatch = new RegExp(
+            "body\\.theme-" + key + "\\s*\\.theme-hero-decor\\s*\\{[^}]*background-image\\s*:\\s*url\\(",
+            "s"
+        );
+        assert.match(css, bodyBlockMatch, `body.theme-${key} .theme-hero-decor should set a background-image`);
+    }
+
+    const urls = [...css.matchAll(/url\("(\.\.\/images\/themes\/[^"]+)"\)/g)].map(m => m[1]);
+    assert.ok(urls.length > 0, "expected at least one images/themes/ url() reference in themes.css");
+
+    for (const relUrl of urls) {
+        // relUrl is relative to css/themes.css itself (e.g.
+        // "../images/themes/halloween/hero-landscape.svg").
+        const resolved = path.join(ROOT, "css", relUrl);
+        assert.ok(fs.existsSync(resolved), `themes.css references a missing file: ${relUrl}`);
+    }
+});
+
+test("15. images/themes/ARTWORK-CREDITS.md documents every local artwork file actually referenced by css/themes.css", () => {
+    const css = read("css/themes.css");
+    const credits = read("images/themes/ARTWORK-CREDITS.md");
+
+    const referencedFiles = new Set(
+        [...css.matchAll(/url\("\.\.\/images\/themes\/([^"]+)"\)/g)].map(m => m[1])
+    );
+
+    for (const file of referencedFiles) {
+        assert.ok(credits.includes(file), `ARTWORK-CREDITS.md does not document ${file}, which themes.css references`);
+    }
 });

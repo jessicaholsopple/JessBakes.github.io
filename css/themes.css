@@ -1,30 +1,57 @@
 /* ==========================================
-   THEMES -- seasonal/holiday accent colors + decorative graphics
+   THEMES -- seasonal/holiday palettes + real decorative artwork
    ==========================================
 
    Loaded AFTER css/style.css on public pages that also load
-   js/theme-apply.js. Adds accents only -- never redesigns layout,
-   typography, or the burgundy/cream brand palette defined in
-   style.css's :root. Classic needs zero rules here at all (no
+   js/theme-apply.js. Classic needs zero rules here at all (no
    body.theme-classic class is ever applied -- see theme-apply.js).
 
-   STRUCTURAL SAFETY RULE, enforced by scoping, not just convention:
-   every decorative rule in this file lives EXCLUSIVELY under
-   .theme-decor-mount (an empty element theme-apply.js injects fresh
-   on every page load -- never existing page markup). This file must
-   NEVER contain a selector matching any of: nav, .navbar, .menu-item,
-   .cart, .cart-*, input, select, textarea, button, .btn, form,
-   .notice-card, .hero h1, .hero h2, .hero p, .price,
-   #menuContainer *, .ballot-*, .checkout-*, .site-header (beyond the
-   scoped mount itself). A future edit to this file must preserve that
-   -- it's what makes "illustrations never cover text, products,
-   buttons, or forms" true by construction.
+   Every image referenced below is a real, pre-existing, licensed
+   illustration downloaded and stored locally under images/themes/ --
+   never hotlinked, never AI-generated, never a hand-drawn icon
+   authored for this project. See images/themes/ARTWORK-CREDITS.md
+   for the creator/source/license of every file used here.
 
-   .theme-decor-mount is `position:fixed` with a NEGATIVE z-index,
-   which (per the CSS2.1 stacking order) reliably paints it behind
-   every ordinary in-flow page element (header, hero, cards, footer)
-   automatically, with no per-page coordination needed -- it can only
-   ever show through in the gaps of the page's own background.
+   STRUCTURAL SAFETY RULE, enforced by scoping, not just convention:
+   decorative rules in this file are confined to a documented,
+   narrow set of selectors. A future edit to this file must keep
+   every decorative addition inside this list -- it's what makes
+   "illustrations and palette changes never cover text, obscure
+   products, or break a control" true by construction:
+
+     - .theme-decor-mount / .theme-hero-decor -- empty elements
+       theme-apply.js injects fresh on every load (never existing
+       markup), always position:fixed|absolute + z-index:-1 +
+       pointer-events:none, so they can only ever paint BEHIND
+       ordinary in-flow content.
+     - .hero, .page-hero, .section-heading, .ballot-section > h2 --
+       may receive `position`, `z-index`, `overflow`, and a solid
+       *background panel* (never a text color change) so real text
+       always sits on its own clean, high-contrast surface regardless
+       of how vivid the artwork behind it is.
+     - .divider -- `color` only (recolors its existing hairline +
+       glyph, no new content).
+     - .menu-section-title -- an `::before` icon only. The `<h2>`
+       inside keeps its normal color/size; no existing text is
+       touched.
+     - .ballot-section, .footer -- `position`, a background tint, and
+       an `::before`/`::after` watermark only. .ballot-card,
+       .ballot-option, .ballot-stats, and every real footer link stay
+       completely untouched.
+     - .site-header -- background only (pre-existing exception from
+       Phase 2).
+     - .checkout-modal -- the ONE place this file *resets* design
+       tokens back to their Classic values instead of theming them.
+       Checkout deliberately never changes look: every field, price,
+       and button stays exactly as readable as it is today, on every
+       theme, by design.
+
+   This file must NEVER set color/background/content on nav,
+   .menu-item, .cart, .cart-*, input, select, textarea, button, .btn,
+   form, .notice-card, .price, #menuContainer * (beyond the one
+   documented .menu-section-title::before icon), .ballot-card,
+   .ballot-option, .ballot-stats, or any .checkout-* selector other
+   than the token-reset rule above.
    ========================================== */
 
 :root {
@@ -32,14 +59,18 @@
     --theme-graphics: normal;
 }
 
+/* ---------- Decor mounts (corner accents + hero composition) ---------- */
+
 .theme-decor-mount {
     position: fixed;
     z-index: -1;
     pointer-events: none;
     width: 88px;
     height: 88px;
-    color: var(--theme-accent, var(--burgundy));
-    opacity: calc(0.24 * var(--theme-intensity, 1));
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    opacity: calc(0.55 * var(--theme-intensity, 1));
 }
 
 .theme-decor-mount.theme-decor-top {
@@ -67,29 +98,460 @@
     }
 }
 
+.theme-hero-decor {
+    /* Capped to at most 560px tall from the top of whatever hero
+       section it's mounted in. Most heroes (.page-hero, and every
+       .hero except the homepage's) are shorter than that, so this is
+       identical to full coverage there. The homepage's .hero is
+       unusually tall because the newsletter sign-up is nested inside
+       it -- capping the height keeps the seasonal artwork confined to
+       the banner/heading/button area and out of the newsletter form
+       entirely, without needing to touch that markup. */
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: min(560px, 100%);
+    z-index: -1;
+    pointer-events: none;
+    background-repeat: no-repeat;
+    opacity: calc(0.4 * var(--theme-intensity, 1));
+}
+
 @media (prefers-reduced-motion: reduce) {
     /* Belt-and-suspenders -- theme-apply.js already skips mounting
        decor at all when this is set, but if a mount somehow exists
        (e.g. a future code path), it must never animate. */
-    .theme-decor-mount, .theme-decor-mount * {
+    .theme-decor-mount, .theme-decor-mount *,
+    .theme-hero-decor, .theme-hero-decor * {
         animation: none !important;
         transition: none !important;
     }
 }
 
+/* ---------- Hero/heading text always sits on its own clean panel ----------
+   Independent of how vivid the artwork behind it is, so contrast is
+   guaranteed rather than tuned per theme. Classic never matches
+   body[class*="theme-"], so this never applies without an active
+   theme. */
+
+body[class*="theme-"] .hero,
+body[class*="theme-"] .page-hero {
+    position: relative;
+    z-index: 0;
+    overflow: hidden;
+}
+
+/* .hero/.page-hero already carry their own tuned padding from
+   style.css -- only add the background/radius/shadow "panel" look,
+   never touch their padding (overriding it previously shifted the
+   whole hero layout and made the panel and the hero-decor artwork
+   behind it appear misaligned). */
+body[class*="theme-"] .hero,
+body[class*="theme-"] .page-hero {
+    background: rgba(255, 251, 244, 0.88);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+}
+
+/* .section-heading and the ballot heading have no padding of their
+   own today, so adding some here is what turns them into a "card"
+   rather than a layout change. */
+body[class*="theme-"] .section-heading,
+body[class*="theme-"] .ballot-section > h2:first-child {
+    background: rgba(255, 251, 244, 0.88);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 34px 26px;
+}
+
+/* ---------- Section divider ---------- */
+
+body[class*="theme-"] .divider {
+    color: var(--theme-accent, var(--burgundy));
+}
+
+/* ---------- Menu category heading icon ---------- */
+
+body[class*="theme-"] .menu-section-title::before {
+    content: "";
+    width: 30px;
+    height: 30px;
+    flex: 0 0 auto;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    opacity: calc(0.9 * var(--theme-intensity, 1));
+}
+
+/* ---------- Ballot + footer watermark ---------- */
+
+body[class*="theme-"] .ballot-section,
+body[class*="theme-"] .footer {
+    position: relative;
+    overflow: hidden;
+}
+
+body[class*="theme-"] .ballot-section::before,
+body[class*="theme-"] .footer::before {
+    content: "";
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 64px;
+    height: 64px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    opacity: calc(0.28 * var(--theme-intensity, 1));
+    pointer-events: none;
+    z-index: 0;
+}
+
+body[class*="theme-"] .ballot-section > * {
+    position: relative;
+    z-index: 1;
+}
+
+body[class*="theme-"] .footer-inner {
+    position: relative;
+    z-index: 1;
+}
+
+/* ---------- Checkout: deliberately restrained ----------
+   Reset every themeable token back to Classic's own values inside
+   the checkout modal, so every field, price, and button reads
+   exactly as it does today no matter which theme is live. */
+
+body[class*="theme-"] .checkout-modal {
+    --burgundy: #5E1811;
+    --burgundy-light: #742118;
+    --text: #3B2A24;
+    --muted: #6E554A;
+    --line: rgba(94, 24, 17, 0.15);
+}
+
+body[class*="theme-"] .checkout-card {
+    border-top: 6px solid var(--theme-accent, #5E1811);
+}
+
 /* ==========================================
-   PER-THEME ACCENT TOKENS
+   PER-THEME PALETTES + ARTWORK
    ========================================== */
 
-body.theme-spring          { --theme-accent: #d68fa3; --theme-accent-2: #7fa06b; }
-body.theme-summer          { --theme-accent: #e0a63a; --theme-accent-2: #4a90a4; }
-body.theme-autumn          { --theme-accent: #b5651d; --theme-accent-2: #8a4a2a; }
-body.theme-winter          { --theme-accent: #6f95b0; --theme-accent-2: #cfe0ea; }
-body.theme-new_years       { --theme-accent: #b08d2f; --theme-accent-2: #3b2a24; }
-body.theme-valentines      { --theme-accent: #c2385a; --theme-accent-2: #e8a2b5; }
-body.theme-st_patricks     { --theme-accent: #2f7d4f; --theme-accent-2: #7bab5e; }
-body.theme-easter          { --theme-accent: #c98ab0; --theme-accent-2: #8fbf8a; }
-body.theme-fourth_of_july  { --theme-accent: #3a5a9c; --theme-accent-2: #b5362f; }
-body.theme-halloween       { --theme-accent: #b5601a; --theme-accent-2: #4a3b52; }
-body.theme-thanksgiving    { --theme-accent: #9c5a2a; --theme-accent-2: #c98a2f; }
-body.theme-christmas       { --theme-accent: #2f6b45; --theme-accent-2: #b5362f; }
+/* ---------- Spring ---------- */
+body.theme-spring {
+    --burgundy: #b5567a;
+    --burgundy-light: #c96f92;
+    --line: rgba(91, 110, 60, 0.2);
+    --theme-accent: #d68fa3;
+    --theme-accent-2: #7fa06b;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.22), transparent 38rem),
+        linear-gradient(180deg, #eef2e2 0%, #e6ecd8 45%, #dfe7cf 100%);
+}
+body.theme-spring .theme-hero-decor {
+    background-image: url("../images/themes/easter/accent-flower-corner.webp");
+    background-size: 100% 100%;
+    opacity: calc(0.45 * var(--theme-intensity, 1));
+}
+body.theme-spring .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/easter/accent-flower-corner.webp"); }
+body.theme-spring .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/easter/accent-flower-corner.webp"); transform: scaleX(-1); }
+body.theme-spring .menu-section-title::before,
+body.theme-spring .ballot-section::before,
+body.theme-spring .footer::before { background-image: url("../images/themes/easter/accent-flower-corner.webp"); }
+
+/* ---------- Summer ---------- */
+body.theme-summer {
+    --burgundy: #c97a1f;
+    --burgundy-light: #e0923a;
+    --line: rgba(180, 120, 30, 0.2);
+    --theme-accent: #e0a63a;
+    --theme-accent-2: #2e93a0;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.22), transparent 38rem),
+        linear-gradient(180deg, #fdf1d9 0%, #fbe6bd 45%, #f7d89c 100%);
+}
+body.theme-summer .theme-hero-decor {
+    background-image: url("../images/themes/summer/hero-sun.svg");
+    background-position: top right;
+    background-size: 30%;
+    opacity: calc(0.42 * var(--theme-intensity, 1));
+}
+body.theme-summer .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/summer/accent-umbrella.svg"); }
+body.theme-summer .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/summer/accent-umbrella.svg"); transform: scaleX(-1); }
+body.theme-summer .menu-section-title::before,
+body.theme-summer .ballot-section::before,
+body.theme-summer .footer::before { background-image: url("../images/themes/summer/accent-umbrella.svg"); }
+
+/* ---------- Autumn ---------- */
+body.theme-autumn {
+    --burgundy: #a1481c;
+    --burgundy-light: #bd5c2a;
+    --line: rgba(120, 60, 20, 0.22);
+    --theme-accent: #b5651d;
+    --theme-accent-2: #7a8a3f;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.2), transparent 38rem),
+        linear-gradient(180deg, #f1ddc0 0%, #e8c79f 45%, #ddb27e 100%);
+}
+body.theme-autumn .theme-hero-decor {
+    background-image: url("../images/themes/autumn/hero-autumn-border.webp");
+    background-size: 100% 100%;
+    opacity: calc(0.48 * var(--theme-intensity, 1));
+}
+body.theme-autumn .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/autumn/hero-autumn-border.webp"); }
+body.theme-autumn .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/autumn/hero-autumn-border.webp"); transform: scaleX(-1); }
+body.theme-autumn .menu-section-title::before,
+body.theme-autumn .ballot-section::before,
+body.theme-autumn .footer::before { background-image: url("../images/themes/autumn/hero-autumn-border.webp"); }
+
+/* ---------- Winter ---------- */
+body.theme-winter {
+    --burgundy: #3f6f92;
+    --burgundy-light: #4f86ac;
+    --line: rgba(60, 100, 130, 0.22);
+    --theme-accent: #6f95b0;
+    --theme-accent-2: #cfe0ea;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.25), transparent 38rem),
+        linear-gradient(180deg, #e7eef3 0%, #dbe6ee 45%, #cfdce6 100%);
+}
+body.theme-winter .theme-hero-decor {
+    background-image: url("../images/themes/winter/hero-snowman-scenery.svg");
+    background-position: bottom right;
+    background-size: 42%;
+    opacity: calc(0.4 * var(--theme-intensity, 1));
+}
+body.theme-winter .theme-hero-decor::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: url("../images/themes/winter/accent-snowflake-frame.webp");
+    background-size: 100% 100%;
+    opacity: calc(0.22 * var(--theme-intensity, 1));
+}
+body.theme-winter .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/winter/accent-snowflake-frame.webp"); }
+body.theme-winter .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/winter/hero-snowman-scenery.svg"); }
+body.theme-winter .menu-section-title::before,
+body.theme-winter .ballot-section::before,
+body.theme-winter .footer::before { background-image: url("../images/themes/winter/accent-snowflake-frame.webp"); }
+
+/* ---------- New Year's ---------- */
+body.theme-new_years {
+    --burgundy: #8a6a1f;
+    --burgundy-light: #a5822c;
+    --line: rgba(140, 110, 30, 0.24);
+    --theme-accent: #b08d2f;
+    --theme-accent-2: #1c2340;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.22), transparent 38rem),
+        linear-gradient(180deg, #efe6cf 0%, #e5d8ab 45%, #d8c583 100%);
+}
+body.theme-new_years .theme-hero-decor {
+    background-image: url("../images/themes/new_years/accent-confetti.svg");
+    background-repeat: repeat;
+    background-size: 130px;
+    opacity: calc(0.4 * var(--theme-intensity, 1));
+}
+body.theme-new_years .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/new_years/accent-fireworks-blue.webp"); }
+body.theme-new_years .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/new_years/accent-fireworks-green.webp"); }
+body.theme-new_years .menu-section-title::before,
+body.theme-new_years .ballot-section::before,
+body.theme-new_years .footer::before { background-image: url("../images/themes/new_years/accent-confetti.svg"); }
+
+/* ---------- Valentine's Day ---------- */
+body.theme-valentines {
+    --burgundy: #a8264a;
+    --burgundy-light: #c23a5f;
+    --line: rgba(160, 40, 70, 0.22);
+    --theme-accent: #c2385a;
+    --theme-accent-2: #e8a2b5;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.25), transparent 38rem),
+        linear-gradient(180deg, #fbe7ec 0%, #f7d3dd 45%, #f2bfce 100%);
+}
+body.theme-valentines .theme-hero-decor {
+    background-image: url("../images/themes/valentines/hero-floral-heart.webp");
+    background-size: 100% 100%;
+    opacity: calc(0.48 * var(--theme-intensity, 1));
+}
+body.theme-valentines .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/valentines/accent-rose.webp"); }
+body.theme-valentines .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/valentines/accent-rose.webp"); transform: scaleX(-1); }
+body.theme-valentines .menu-section-title::before,
+body.theme-valentines .ballot-section::before,
+body.theme-valentines .footer::before { background-image: url("../images/themes/valentines/accent-rose.webp"); }
+
+/* ---------- St. Patrick's Day ---------- */
+body.theme-st_patricks {
+    --burgundy: #276b43;
+    --burgundy-light: #358457;
+    --line: rgba(30, 100, 60, 0.22);
+    --theme-accent: #2f7d4f;
+    --theme-accent-2: #c9a227;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.22), transparent 38rem),
+        linear-gradient(180deg, #e3efe2 0%, #d3e6d0 45%, #c1dabd 100%);
+}
+/* A handful of tastefully-placed clovers (the same licensed asset,
+   deliberately repeated at different positions/sizes) rather than
+   one lone icon -- see images/themes/ARTWORK-CREDITS.md. */
+body.theme-st_patricks .theme-hero-decor {
+    background-image:
+        url("../images/themes/st_patricks/accent-clover.svg"),
+        url("../images/themes/st_patricks/accent-clover.svg"),
+        url("../images/themes/st_patricks/accent-clover.svg");
+    background-position: 8% 85%, 92% 15%, 50% 55%;
+    background-size: 56px, 42px, 48px;
+    opacity: calc(0.42 * var(--theme-intensity, 1));
+}
+body.theme-st_patricks .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/st_patricks/accent-clover.svg"); }
+body.theme-st_patricks .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/st_patricks/accent-clover.svg"); }
+body.theme-st_patricks .menu-section-title::before,
+body.theme-st_patricks .ballot-section::before,
+body.theme-st_patricks .footer::before { background-image: url("../images/themes/st_patricks/accent-clover.svg"); }
+
+/* ---------- Easter ---------- */
+body.theme-easter {
+    --burgundy: #8a4f8c;
+    --burgundy-light: #a3699f;
+    --line: rgba(120, 70, 120, 0.2);
+    --theme-accent: #c98ab0;
+    --theme-accent-2: #8fbf8a;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.25), transparent 38rem),
+        linear-gradient(180deg, #f7ecf2 0%, #eee0ee 45%, #e3d9ea 100%);
+}
+body.theme-easter .theme-hero-decor {
+    background-image: url("../images/themes/easter/hero-bunny.svg");
+    background-position: bottom right;
+    background-size: 26%;
+    opacity: calc(0.5 * var(--theme-intensity, 1));
+}
+body.theme-easter .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/easter/accent-flower-corner.webp"); }
+body.theme-easter .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/easter/accent-flower-corner.webp"); transform: scaleX(-1); }
+body.theme-easter .menu-section-title::before,
+body.theme-easter .ballot-section::before,
+body.theme-easter .footer::before { background-image: url("../images/themes/easter/accent-flower-corner.webp"); }
+
+/* ---------- Fourth of July ---------- */
+body.theme-fourth_of_july {
+    --burgundy: #2f4d85;
+    --burgundy-light: #3e63a3;
+    --line: rgba(40, 70, 130, 0.22);
+    --theme-accent: #3a5a9c;
+    --theme-accent-2: #b5362f;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.25), transparent 38rem),
+        linear-gradient(180deg, #eef1f7 0%, #dde4f0 45%, #ccd6e8 100%);
+}
+body.theme-fourth_of_july .theme-hero-decor {
+    background-image: url("../images/themes/fourth_of_july/hero-patriotic-stars.svg");
+    background-position: bottom right;
+    background-size: 32%;
+    opacity: calc(0.42 * var(--theme-intensity, 1));
+}
+body.theme-fourth_of_july .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/fourth_of_july/hero-patriotic-stars.svg"); }
+body.theme-fourth_of_july .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/fourth_of_july/hero-patriotic-stars.svg"); }
+body.theme-fourth_of_july .menu-section-title::before,
+body.theme-fourth_of_july .ballot-section::before,
+body.theme-fourth_of_july .footer::before { background-image: url("../images/themes/fourth_of_july/hero-patriotic-stars.svg"); }
+
+/* ---------- Halloween ---------- */
+body.theme-halloween {
+    /* Darker than white-background themes so the accent still clears
+       4.5:1 against both a white checkout-style card and the light
+       hero/heading panel above -- the vivid pumpkin orange lives in
+       --theme-accent for decorative (non-text) use only. */
+    --burgundy: #a8541a;
+    --burgundy-light: #c06b28;
+    --line: rgba(224, 138, 46, 0.3);
+    --theme-accent: #e08a2e;
+    --theme-accent-2: #7c5a96;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.06), transparent 38rem),
+        linear-gradient(180deg, #241a2b 0%, #1c1420 45%, #150f18 100%);
+}
+body.theme-halloween .theme-hero-decor {
+    background-image: url("../images/themes/halloween/hero-landscape.svg");
+    background-position: bottom right;
+    background-size: 46%;
+    opacity: calc(0.42 * var(--theme-intensity, 1));
+}
+body.theme-halloween .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/halloween/accent-bat.svg"); }
+body.theme-halloween .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/halloween/accent-jack-o-lantern.svg"); }
+body.theme-halloween .menu-section-title::before,
+body.theme-halloween .ballot-section::before,
+body.theme-halloween .footer::before { background-image: url("../images/themes/halloween/accent-ghost.svg"); }
+
+/* ---------- Thanksgiving ---------- */
+body.theme-thanksgiving {
+    --burgundy: #8a4520;
+    --burgundy-light: #a35729;
+    --line: rgba(120, 60, 20, 0.22);
+    --theme-accent: #9c5a2a;
+    --theme-accent-2: #c98a2f;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.2), transparent 38rem),
+        linear-gradient(180deg, #f0dcc0 0%, #e6c89a 45%, #d9b076 100%);
+}
+body.theme-thanksgiving .theme-hero-decor {
+    /* This particular frame asset is tall/portrait (900x1476) --
+       stretching it to fill a short, wide hero box like the other
+       frame-mode themes distorts it badly, so it's positioned and
+       scaled like a scene instead, preserving its own aspect ratio. */
+    background-image: url("../images/themes/thanksgiving/hero-frame.webp");
+    background-position: right center;
+    background-size: contain;
+    opacity: calc(0.5 * var(--theme-intensity, 1));
+}
+body.theme-thanksgiving .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/thanksgiving/accent-turkey.svg"); }
+body.theme-thanksgiving .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/thanksgiving/accent-leafy-frame.webp"); }
+body.theme-thanksgiving .menu-section-title::before,
+body.theme-thanksgiving .ballot-section::before,
+body.theme-thanksgiving .footer::before { background-image: url("../images/themes/thanksgiving/accent-turkey.svg"); }
+
+/* ---------- Christmas ---------- */
+body.theme-christmas {
+    --burgundy: #1f6b3f;
+    --burgundy-light: #2c8752;
+    --line: rgba(30, 100, 60, 0.22);
+    --theme-accent: #2f6b45;
+    --theme-accent-2: #b5362f;
+    background:
+        radial-gradient(circle at top left, rgba(255,255,255,.25), transparent 38rem),
+        linear-gradient(180deg, #eef5ee 0%, #dff0e3 45%, #cfe6d4 100%);
+}
+body.theme-christmas .theme-hero-decor {
+    background-image: url("../images/themes/christmas/hero-tree.svg");
+    background-position: bottom right;
+    background-size: 26%;
+    opacity: calc(0.5 * var(--theme-intensity, 1));
+}
+/* Falling snow, drawn with CSS only -- no image asset. Confined to
+   the hero decor layer so it never drifts across other sections. */
+body.theme-christmas .theme-hero-decor::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+        radial-gradient(circle, #fff 1.6px, transparent 1.8px),
+        radial-gradient(circle, #fff 1.1px, transparent 1.3px),
+        radial-gradient(circle, #fff 2px, transparent 2.2px);
+    background-size: 90px 130px, 60px 90px, 150px 190px;
+    background-position: 10px 10px, 40px 60px, 90px 20px;
+    opacity: calc(0.55 * var(--theme-intensity, 1));
+    animation: theme-christmas-snow 16s linear infinite;
+}
+@keyframes theme-christmas-snow {
+    from { background-position: 10px 10px, 40px 60px, 90px 20px; }
+    to   { background-position: 10px 420px, 40px 320px, 90px 520px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    body.theme-christmas .theme-hero-decor::after { animation: none; }
+}
+body.theme-christmas .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/christmas/accent-gift-box.svg"); }
+body.theme-christmas .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/christmas/accent-holly.svg"); }
+body.theme-christmas .menu-section-title::before,
+body.theme-christmas .ballot-section::before,
+body.theme-christmas .footer::before { background-image: url("../images/themes/christmas/accent-holly.svg"); }
