@@ -10,13 +10,14 @@
    decorations can never land on top of nav/products/prices/buttons/
    forms by construction. This script only ever creates new, empty,
    aria-hidden elements; it never alters, removes, or restyles any
-   existing element's content. All actual artwork (which image goes
-   where, at what size/position/opacity) is chosen entirely by
-   css/themes.css's per-theme `background-image` rules -- this file
-   just mounts the anonymous hooks those rules target:
+   existing element's content. All actual artwork (which icon goes
+   where, at what size/position/rotation/opacity) is chosen entirely
+   by css/themes.css's per-theme `mask-image` rules -- this file just
+   mounts the anonymous hooks those rules target:
      - .theme-hero-decor: one mount, placed inside the page's hero
-       section (.hero or .page-hero, whichever exists) for the
-       prominent seasonal composition.
+       section (.hero or .page-hero, whichever exists), containing a
+       small scattered cluster of 5 .theme-hero-icon slots for the
+       prominent seasonal composition -- never one single giant image.
      - .theme-decor-mount.theme-decor-top / -bottom: two small
        corner accents, present on every page (unchanged from Phase 2).
    Section-divider, Menu-category-heading, ballot, and footer artwork
@@ -156,17 +157,24 @@ function applyTheme(resolved) {
 
 /** Injects fresh, empty, non-interactive mount elements -- never
  *  touches existing page markup. .theme-decor-mount /
- *  .theme-hero-decor and their modifier classes are styled entirely
- *  in css/themes.css (which per-theme `background-image` to show is
- *  a pure CSS decision), scoped so they can never overlap nav/
- *  content/forms (see that file's header comment for the enforced
- *  selector list). */
+ *  .theme-hero-decor / .theme-hero-icon and their modifier classes
+ *  are styled entirely in css/themes.css (which per-theme icon --
+ *  via `mask-image` -- shows in each slot is a pure CSS decision),
+ *  scoped so they can never overlap nav/content/forms (see that
+ *  file's header comment for the enforced selector list). */
 function mountThemeDecor() {
     const heroSection = document.querySelector(".hero, .page-hero");
     if (heroSection) {
         const heroMount = document.createElement("div");
         heroMount.className = "theme-hero-decor";
         heroMount.setAttribute("aria-hidden", "true");
+        // A small scattered cluster, never one giant image -- see
+        // css/themes.css's .theme-hero-icon.slot-1..5 rules.
+        for (let i = 1; i <= HERO_ICON_SLOT_COUNT; i++) {
+            const iconEl = document.createElement("div");
+            iconEl.className = "theme-hero-icon slot-" + i;
+            heroMount.appendChild(iconEl);
+        }
         heroSection.insertBefore(heroMount, heroSection.firstChild);
     }
 
@@ -177,6 +185,8 @@ function mountThemeDecor() {
         document.body.appendChild(mount);
     });
 }
+
+const HERO_ICON_SLOT_COUNT = 5;
 
 /* ==========================================
    Every catalog theme key this shipped copy knows how to decorate.

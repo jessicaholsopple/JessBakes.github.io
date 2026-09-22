@@ -1,74 +1,120 @@
 # Theme artwork — sources, licenses, credits
 
-All artwork below was downloaded from **openclipart.org**. Every file on
-OpenClipart is released by its uploading artist under the
-**Creative Commons Zero 1.0 Universal (CC0 1.0) Public Domain Dedication**
-— free for any use, including commercial, with **no attribution legally
-required**. Artist names are recorded here anyway as a courtesy and for
-provenance, per Jessica's request to track creator/source/license for every
-asset actually used.
+## Icons (35 of the 36 files below)
 
-No AI-generated art, no hand-drawn icons authored for this project, no emoji,
-and no generic icon-font glyphs are used anywhere in the Themes feature —
-every image below is real, pre-existing artwork by a named illustrator.
+Every icon under `images/themes/icons/` **except `turkey.svg`** comes from
+**Phosphor Icons** ("fill" weight), a professionally-designed, actively
+maintained open-source icon library.
 
-SVGs whose original file was large (mostly dense leaf/snowflake/frame
-illustrations) were rasterized to WebP at a size appropriate to where they're
-displayed, using `sharp-cli`, to keep page loads fast. Everything else is
-served as the original vector, optimized with `svgo`. Nothing is hotlinked —
-every file below is a local copy checked into this repo.
+- Source: https://github.com/phosphor-icons/core
+- License: **MIT** (full text below)
+- Attribution: not required by the license; recorded here for provenance.
+  The MIT notice is reproduced below to satisfy the license's "include the
+  copyright notice" condition for redistributed copies.
 
-| Local file | Title | Artist | Source | License |
+Using one consistent, single-artist icon family (rather than mixing many
+different illustrators' individual clip-art pieces, which is what Phase 1 of
+this feature did and which read as dated/mismatched) is a deliberate choice
+for visual cohesion. Each icon is a single-color shape applied via CSS
+`mask-image`, so the *same* file is tinted with each theme's own accent
+color (`--theme-accent` / `--theme-accent-2`) — no per-theme color variants
+needed.
+
+| File | Phosphor icon name |
+|---|---|
+| `icons/acorn.svg` | acorn |
+| `icons/basket.svg` | basket |
+| `icons/beach-ball.svg` | beach-ball |
+| `icons/bell.svg` | bell |
+| `icons/bird.svg` | bird |
+| `icons/bone.svg` | bone |
+| `icons/bowl-food.svg` | bowl-food |
+| `icons/broom.svg` | broom |
+| `icons/butterfly.svg` | butterfly |
+| `icons/cat.svg` | cat |
+| `icons/clover.svg` | clover |
+| `icons/confetti.svg` | confetti |
+| `icons/crown.svg` | crown |
+| `icons/egg.svg` | egg |
+| `icons/egg-crack.svg` | egg-crack |
+| `icons/flag.svg` | flag |
+| `icons/flower.svg` | flower |
+| `icons/flower-tulip.svg` | flower-tulip |
+| `icons/ghost.svg` | ghost |
+| `icons/gift.svg` | gift |
+| `icons/heart.svg` | heart |
+| `icons/heart-straight.svg` | heart-straight |
+| `icons/ice-cream.svg` | ice-cream |
+| `icons/leaf.svg` | leaf |
+| `icons/moon-stars.svg` | moon-stars |
+| `icons/rabbit.svg` | rabbit |
+| `icons/rainbow.svg` | rainbow |
+| `icons/snowflake.svg` | snowflake |
+| `icons/sparkle.svg` | sparkle |
+| `icons/star.svg` | star |
+| `icons/sun.svg` | sun |
+| `icons/sunglasses.svg` | sunglasses |
+| `icons/tree-evergreen.svg` | tree-evergreen |
+| `icons/umbrella.svg` | umbrella |
+| `icons/wind.svg` | wind |
+
+### MIT License (Phosphor Icons)
+
+```
+MIT License
+
+Copyright (c) 2023 Phosphor Icons
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## The one non-Phosphor file: `icons/turkey.svg`
+
+Phosphor's icon set has no turkey, and Thanksgiving reads much better with
+one. This single file is kept from the original openclipart.org sourcing
+pass:
+
+| File | Title | Artist | Source | License |
 |---|---|---|---|---|
-| `halloween/hero-landscape.svg` | Halloween Landscape – Colour Remix | j4p4n (remix of a piece by inky2010) | https://openclipart.org/detail/354541 | CC0 1.0 |
-| `halloween/accent-bat.svg` | Cute Bat | SunKing2 | https://openclipart.org/detail/334259 | CC0 1.0 |
-| `halloween/accent-ghost.svg` | Cute Ghost | SunKing2 | https://openclipart.org/detail/334261 | CC0 1.0 |
-| `halloween/accent-jack-o-lantern.svg` | Jack-o-lantern | TrueCryer | https://openclipart.org/detail/334013 | CC0 1.0 |
-| `thanksgiving/hero-frame.webp` | Turkey Frame – Colour Remix | j4p4n | https://openclipart.org/detail/350485 | CC0 1.0 |
-| `thanksgiving/accent-turkey.svg` | Thanksgiving Turkey | liftarn | https://openclipart.org/detail/319574 | CC0 1.0 |
-| `thanksgiving/accent-leafy-frame.webp` | Leafy Frame 27 (colour) | Firkin | https://openclipart.org/detail/301742 | CC0 1.0 |
-| `christmas/hero-tree.svg` | Christmas Tree | drdixieshaffer | https://openclipart.org/detail/339787 | CC0 1.0 |
-| `christmas/accent-gift-box.svg` | Cartoon Gift Box 1 | rdragon | https://openclipart.org/detail/189390 | CC0 1.0 |
-| `christmas/accent-holly.svg` | Holly | GDJ | https://openclipart.org/detail/221091 | CC0 1.0 |
-| `valentines/hero-floral-heart.webp` | Floral Heart Frame | Firkin | https://openclipart.org/detail/297064 | CC0 1.0 |
-| `valentines/accent-rose.webp` | Rose Frame – Colour | j4p4n | https://openclipart.org/detail/291026 | CC0 1.0 |
-| `new_years/accent-fireworks-blue.webp` | Blue Fireworks | eady | https://openclipart.org/detail/104497 | CC0 1.0 |
-| `new_years/accent-fireworks-green.webp` | Green Fireworks | eady | https://openclipart.org/detail/104503 | CC0 1.0 |
-| `new_years/accent-confetti.svg` | Confetti | mi_brami | https://openclipart.org/detail/166721 | CC0 1.0 |
-| `st_patricks/accent-clover.svg` | Four Leaf Clover | liftarn | https://openclipart.org/detail/1325 | CC0 1.0 |
-| `easter/hero-bunny.svg` | Funny Baby Bunny Sitting on an Easter Egg | palomaironique | https://openclipart.org/detail/131749 | CC0 1.0 |
-| `easter/accent-flower-corner.webp` | Flower Corner Variation Frame | GDJ | https://openclipart.org/detail/227762 | CC0 1.0 |
-| `fourth_of_july/hero-patriotic-stars.svg` | Patriotic Stars | Prawny | https://openclipart.org/detail/194490 | CC0 1.0 |
-| `autumn/hero-autumn-border.webp` | Autumn Border | Arvin61r58 | https://openclipart.org/detail/227730 | CC0 1.0 |
-| `summer/hero-sun.svg` | Cool Happy Sun | mystica | https://openclipart.org/detail/147721 | CC0 1.0 |
-| `summer/accent-umbrella.svg` | Beach Umbrella | Simanek | https://openclipart.org/detail/170003 | CC0 1.0 |
-| `winter/hero-snowman-scenery.svg` | Snowman Glossy in Winter Scenery | gem | https://openclipart.org/detail/100807 | CC0 1.0 |
-| `winter/accent-snowflake-frame.webp` | Snowflake – Colour Frame | j4p4n | https://openclipart.org/detail/282010 | CC0 1.0 |
+| `icons/turkey.svg` | Thanksgiving Turkey | liftarn | https://openclipart.org/detail/319574 | CC0 1.0 |
 
-Spring uses `easter/accent-flower-corner.webp` (the same Flower Corner Variation
-Frame) as its own hero accent — the file lives under `easter/` because it was
-sourced for Easter first, but `theme-apply.js` references it from both themes
-rather than duplicating the file.
-
-Christmas's "snow" is drawn with pure CSS (radial-gradient dot layers, not an
-image asset), so there is no snow file to credit separately.
+CC0 1.0 (Creative Commons Zero / Public Domain Dedication) — free for any
+use, including commercial, with no attribution legally required. It's a
+single flat black silhouette (one `<path>`, no gradients or shading), which
+is why it masks/recolors cleanly alongside the Phosphor icons instead of
+looking out of place the way a fully-shaded cartoon illustration would.
 
 ## Attribution display
 
-Because every asset above is CC0 and requires no attribution, no on-site
-credit line is shown to visitors. This file is the repository's permanent
-record of provenance, kept up to date whenever theme artwork changes.
+No on-site credit line is shown to visitors — Phosphor's MIT license and
+the turkey silhouette's CC0 license both permit that. This file is the
+repository's permanent record of provenance, kept up to date whenever theme
+artwork changes.
 
-## Rejected candidates
+## Design note: icon cluster, not clip art
 
-A number of other OpenClipart pieces were downloaded and reviewed for this
-project but rejected as visually mismatched, low quality, or (in one case)
-flagged in its own title as AI-generated:
-
-- id `345968` ("...ai-generated-stained-glass-christmas-tree...") — explicitly
-  AI-generated per its own title; never downloaded for use.
-- Assorted rejected candidates (black-and-white line art clashing with the
-  chosen flat-color style, a busy paisley-pattern pumpkin, a caution-tape-style
-  heart frame, images with baked-in English text in a mismatched font) were
-  reviewed in a local scratch grid and discarded before any were added to this
-  repo.
+Earlier revisions of this feature sourced full illustrated scenes and
+frames from multiple different openclipart.org artists per theme (a bat
+from one illustrator, a landscape from another, a turkey frame from a
+third). Mixed together, that read as dated, mismatched clip art rather than
+a designed theme. This revision instead builds every theme's seasonal
+composition from a small, curated set (usually 5-6) of icons drawn from the
+*same* single, modern, professionally-maintained icon family, arranged as a
+scattered cluster and tinted with that theme's own palette. The only
+intentional exception is the single Thanksgiving turkey silhouette above.

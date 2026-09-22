@@ -6,38 +6,52 @@
    js/theme-apply.js. Classic needs zero rules here at all (no
    body.theme-classic class is ever applied -- see theme-apply.js).
 
-   Every image referenced below is a real, pre-existing, licensed
-   illustration downloaded and stored locally under images/themes/ --
-   never hotlinked, never AI-generated, never a hand-drawn icon
-   authored for this project. See images/themes/ARTWORK-CREDITS.md
-   for the creator/source/license of every file used here.
+   Every icon referenced below is a real, professionally-designed,
+   openly-licensed icon from the Phosphor Icons library (MIT license,
+   https://github.com/phosphor-icons/core -- full license text and
+   provenance in images/themes/ARTWORK-CREDITS.md), plus one CC0
+   turkey silhouette from openclipart.org for Thanksgiving (Phosphor
+   has no turkey). Never hotlinked -- every file is a local copy under
+   images/themes/icons/. Never AI-generated, never a hand-drawn icon
+   authored for this project, never emoji, never a generic icon-font
+   glyph string.
+
+   Each icon is a single-color shape applied as a CSS `mask-image` --
+   NOT a `background-image` -- so it inherits each theme's own accent
+   color via `background-color: var(--theme-accent)`, exactly the way
+   `currentColor` would work for an inline SVG, without needing a
+   separately-colored file per theme. One shared icon file serves
+   every theme.
 
    STRUCTURAL SAFETY RULE, enforced by scoping, not just convention:
-   decorative rules in this file are confined to a documented,
-   narrow set of selectors. A future edit to this file must keep
-   every decorative addition inside this list -- it's what makes
+   decorative rules in this file are confined to a documented, narrow
+   set of selectors. A future edit to this file must keep every
+   decorative addition inside this list -- it's what makes
    "illustrations and palette changes never cover text, obscure
    products, or break a control" true by construction:
 
-     - .theme-decor-mount / .theme-hero-decor -- empty elements
-       theme-apply.js injects fresh on every load (never existing
-       markup), always position:fixed|absolute + z-index:-1 +
-       pointer-events:none, so they can only ever paint BEHIND
-       ordinary in-flow content.
-     - .hero, .page-hero, .section-heading, .ballot-section > h2 --
-       may receive `position`, `z-index`, `overflow`, and a solid
-       *background panel* (never a text color change) so real text
-       always sits on its own clean, high-contrast surface regardless
-       of how vivid the artwork behind it is.
+     - .theme-decor-mount / .theme-hero-decor / .theme-hero-icon --
+       empty elements theme-apply.js injects fresh on every load
+       (never existing markup), always position:fixed|absolute +
+       z-index:-1 + pointer-events:none, so they can only ever paint
+       BEHIND ordinary in-flow content.
+     - .hero, .page-hero -- may receive `position`, `z-index`,
+       `overflow`, and a solid *background panel* (never a text color
+       change) so real text always sits on its own clean,
+       high-contrast surface regardless of how vivid the artwork
+       behind it is. Their existing padding is never touched.
+     - .section-heading, .ballot-section > h2 -- same background-panel
+       treatment, plus padding (they have none of their own to
+       conflict with).
      - .divider -- `color` only (recolors its existing hairline +
        glyph, no new content).
      - .menu-section-title -- an `::before` icon only. The `<h2>`
        inside keeps its normal color/size; no existing text is
        touched.
      - .ballot-section, .footer -- `position`, a background tint, and
-       an `::before`/`::after` watermark only. .ballot-card,
-       .ballot-option, .ballot-stats, and every real footer link stay
-       completely untouched.
+       an `::before` watermark icon only. .ballot-card, .ballot-option,
+       .ballot-stats, and every real footer link stay completely
+       untouched.
      - .site-header -- background only (pre-existing exception from
        Phase 2).
      - .checkout-modal -- the ONE place this file *resets* design
@@ -59,42 +73,46 @@
     --theme-graphics: normal;
 }
 
-/* ---------- Decor mounts (corner accents + hero composition) ---------- */
+/* ---------- Decor mounts (corner accents + hero icon cluster) ---------- */
 
 .theme-decor-mount {
     position: fixed;
     z-index: -1;
     pointer-events: none;
-    width: 88px;
-    height: 88px;
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: contain;
+    width: 60px;
+    height: 60px;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    background-color: var(--theme-accent, var(--burgundy));
     opacity: calc(0.55 * var(--theme-intensity, 1));
 }
 
 .theme-decor-mount.theme-decor-top {
     top: 84px;
-    right: 12px;
+    right: 16px;
 }
 
 .theme-decor-mount.theme-decor-bottom {
     bottom: 16px;
-    left: 12px;
+    left: 16px;
 }
 
 @media (min-width: 900px) {
     .theme-decor-mount {
-        width: 130px;
-        height: 130px;
+        width: 84px;
+        height: 84px;
     }
     .theme-decor-mount.theme-decor-top {
-        top: 110px;
-        right: 28px;
+        top: 112px;
+        right: 32px;
     }
     .theme-decor-mount.theme-decor-bottom {
-        bottom: 28px;
-        left: 28px;
+        bottom: 32px;
+        left: 32px;
     }
 }
 
@@ -104,9 +122,10 @@
        .hero except the homepage's) are shorter than that, so this is
        identical to full coverage there. The homepage's .hero is
        unusually tall because the newsletter sign-up is nested inside
-       it -- capping the height keeps the seasonal artwork confined to
-       the banner/heading/button area and out of the newsletter form
-       entirely, without needing to touch that markup. */
+       it -- capping the height keeps the seasonal icon cluster
+       confined to the banner/heading/button area and out of the
+       newsletter form entirely, without needing to touch that
+       markup. */
     position: absolute;
     top: 0;
     left: 0;
@@ -114,8 +133,86 @@
     height: min(560px, 100%);
     z-index: -1;
     pointer-events: none;
-    background-repeat: no-repeat;
-    opacity: calc(0.4 * var(--theme-intensity, 1));
+}
+
+/* A small scattered cluster of 5 icons -- never one giant image --
+   biased toward the right side of the hero so the centered heading
+   text on the left/center stays visually clear. Position/size/
+   rotation are shared across every theme; only WHICH icon (via
+   mask-image) and its color (via --theme-accent/-2, already
+   theme-scoped) change per theme below. */
+.theme-hero-icon {
+    position: absolute;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+}
+
+/* Every slot hugs a CORNER of the hero box -- never the horizontal
+   center -- because the heading above is centered and can run nearly
+   edge-to-edge at large clamp() font sizes. Corners stay clear of
+   centered text at any reasonable width, which a "scattered across
+   the right two-thirds" layout (an earlier revision) did not
+   guarantee: icons landed visually behind mid-word and looked like
+   noise interrupting the text rather than decoration around it. */
+.theme-hero-icon.slot-1 {
+    top: 4%;
+    right: 4%;
+    width: 58px;
+    height: 58px;
+    transform: rotate(-8deg);
+    background-color: var(--theme-accent);
+    opacity: calc(0.8 * var(--theme-intensity, 1));
+}
+.theme-hero-icon.slot-2 {
+    top: 21%;
+    right: 4%;
+    width: 38px;
+    height: 38px;
+    transform: rotate(12deg);
+    background-color: var(--theme-accent-2);
+    opacity: calc(0.55 * var(--theme-intensity, 1));
+}
+.theme-hero-icon.slot-3 {
+    bottom: 4%;
+    right: 4%;
+    width: 52px;
+    height: 52px;
+    transform: rotate(-6deg);
+    background-color: var(--theme-accent);
+    opacity: calc(0.7 * var(--theme-intensity, 1));
+}
+.theme-hero-icon.slot-4 {
+    bottom: 20%;
+    right: 4%;
+    width: 34px;
+    height: 34px;
+    transform: rotate(16deg);
+    background-color: var(--theme-accent-2);
+    opacity: calc(0.45 * var(--theme-intensity, 1));
+}
+.theme-hero-icon.slot-5 {
+    top: 4%;
+    left: 4%;
+    width: 44px;
+    height: 44px;
+    transform: rotate(-14deg);
+    background-color: var(--theme-accent);
+    opacity: calc(0.55 * var(--theme-intensity, 1));
+}
+
+@media (max-width: 640px) {
+    /* Smaller hero on narrow screens -- keep the cluster modest so it
+       reads as a corner flourish, not competing visual weight next to
+       the heading. */
+    .theme-hero-icon.slot-1 { width: 42px; height: 42px; }
+    .theme-hero-icon.slot-2 { width: 28px; height: 28px; }
+    .theme-hero-icon.slot-3 { width: 38px; height: 38px; }
+    .theme-hero-icon.slot-4 { width: 26px; height: 26px; }
+    .theme-hero-icon.slot-5 { width: 32px; height: 32px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -144,9 +241,7 @@ body[class*="theme-"] .page-hero {
 
 /* .hero/.page-hero already carry their own tuned padding from
    style.css -- only add the background/radius/shadow "panel" look,
-   never touch their padding (overriding it previously shifted the
-   whole hero layout and made the panel and the hero-decor artwork
-   behind it appear misaligned). */
+   never touch their padding. */
 body[class*="theme-"] .hero,
 body[class*="theme-"] .page-hero {
     background: rgba(255, 251, 244, 0.88);
@@ -175,12 +270,16 @@ body[class*="theme-"] .divider {
 
 body[class*="theme-"] .menu-section-title::before {
     content: "";
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
     flex: 0 0 auto;
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: contain;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    background-color: var(--theme-accent, var(--burgundy));
     opacity: calc(0.9 * var(--theme-intensity, 1));
 }
 
@@ -198,12 +297,16 @@ body[class*="theme-"] .footer::before {
     position: absolute;
     top: 12px;
     right: 12px;
-    width: 64px;
-    height: 64px;
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: contain;
-    opacity: calc(0.28 * var(--theme-intensity, 1));
+    width: 56px;
+    height: 56px;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    background-color: var(--theme-accent, var(--burgundy));
+    opacity: calc(0.3 * var(--theme-intensity, 1));
     pointer-events: none;
     z-index: 0;
 }
@@ -236,7 +339,13 @@ body[class*="theme-"] .checkout-card {
 }
 
 /* ==========================================
-   PER-THEME PALETTES + ARTWORK
+   PER-THEME PALETTES + ICON ASSIGNMENTS
+
+   Each block: core design tokens, --theme-accent/-2 (used by the
+   decor mounts/icons above), a body background gradient, then which
+   icon (images/themes/icons/*.svg) fills each of the 5 hero slots,
+   the 2 corner mounts, and the shared menu-heading/ballot/footer
+   watermark.
    ========================================== */
 
 /* ---------- Spring ---------- */
@@ -244,22 +353,22 @@ body.theme-spring {
     --burgundy: #b5567a;
     --burgundy-light: #c96f92;
     --line: rgba(91, 110, 60, 0.2);
-    --theme-accent: #d68fa3;
+    --theme-accent: #c96f92;
     --theme-accent-2: #7fa06b;
     background:
         radial-gradient(circle at top left, rgba(255,255,255,.22), transparent 38rem),
         linear-gradient(180deg, #eef2e2 0%, #e6ecd8 45%, #dfe7cf 100%);
 }
-body.theme-spring .theme-hero-decor {
-    background-image: url("../images/themes/easter/accent-flower-corner.webp");
-    background-size: 100% 100%;
-    opacity: calc(0.45 * var(--theme-intensity, 1));
-}
-body.theme-spring .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/easter/accent-flower-corner.webp"); }
-body.theme-spring .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/easter/accent-flower-corner.webp"); transform: scaleX(-1); }
+body.theme-spring .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/flower-tulip.svg"); -webkit-mask-image: url("../images/themes/icons/flower-tulip.svg"); }
+body.theme-spring .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/butterfly.svg"); -webkit-mask-image: url("../images/themes/icons/butterfly.svg"); }
+body.theme-spring .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/sun.svg"); -webkit-mask-image: url("../images/themes/icons/sun.svg"); }
+body.theme-spring .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/rainbow.svg"); -webkit-mask-image: url("../images/themes/icons/rainbow.svg"); }
+body.theme-spring .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/bird.svg"); -webkit-mask-image: url("../images/themes/icons/bird.svg"); }
+body.theme-spring .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/flower-tulip.svg"); -webkit-mask-image: url("../images/themes/icons/flower-tulip.svg"); }
+body.theme-spring .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/butterfly.svg"); -webkit-mask-image: url("../images/themes/icons/butterfly.svg"); }
 body.theme-spring .menu-section-title::before,
 body.theme-spring .ballot-section::before,
-body.theme-spring .footer::before { background-image: url("../images/themes/easter/accent-flower-corner.webp"); }
+body.theme-spring .footer::before { mask-image: url("../images/themes/icons/flower-tulip.svg"); -webkit-mask-image: url("../images/themes/icons/flower-tulip.svg"); }
 
 /* ---------- Summer ---------- */
 body.theme-summer {
@@ -272,17 +381,16 @@ body.theme-summer {
         radial-gradient(circle at top left, rgba(255,255,255,.22), transparent 38rem),
         linear-gradient(180deg, #fdf1d9 0%, #fbe6bd 45%, #f7d89c 100%);
 }
-body.theme-summer .theme-hero-decor {
-    background-image: url("../images/themes/summer/hero-sun.svg");
-    background-position: top right;
-    background-size: 30%;
-    opacity: calc(0.42 * var(--theme-intensity, 1));
-}
-body.theme-summer .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/summer/accent-umbrella.svg"); }
-body.theme-summer .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/summer/accent-umbrella.svg"); transform: scaleX(-1); }
+body.theme-summer .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/sun.svg"); -webkit-mask-image: url("../images/themes/icons/sun.svg"); }
+body.theme-summer .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/umbrella.svg"); -webkit-mask-image: url("../images/themes/icons/umbrella.svg"); }
+body.theme-summer .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/sunglasses.svg"); -webkit-mask-image: url("../images/themes/icons/sunglasses.svg"); }
+body.theme-summer .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/ice-cream.svg"); -webkit-mask-image: url("../images/themes/icons/ice-cream.svg"); }
+body.theme-summer .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/beach-ball.svg"); -webkit-mask-image: url("../images/themes/icons/beach-ball.svg"); }
+body.theme-summer .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/sun.svg"); -webkit-mask-image: url("../images/themes/icons/sun.svg"); }
+body.theme-summer .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/umbrella.svg"); -webkit-mask-image: url("../images/themes/icons/umbrella.svg"); }
 body.theme-summer .menu-section-title::before,
 body.theme-summer .ballot-section::before,
-body.theme-summer .footer::before { background-image: url("../images/themes/summer/accent-umbrella.svg"); }
+body.theme-summer .footer::before { mask-image: url("../images/themes/icons/sun.svg"); -webkit-mask-image: url("../images/themes/icons/sun.svg"); }
 
 /* ---------- Autumn ---------- */
 body.theme-autumn {
@@ -295,16 +403,16 @@ body.theme-autumn {
         radial-gradient(circle at top left, rgba(255,255,255,.2), transparent 38rem),
         linear-gradient(180deg, #f1ddc0 0%, #e8c79f 45%, #ddb27e 100%);
 }
-body.theme-autumn .theme-hero-decor {
-    background-image: url("../images/themes/autumn/hero-autumn-border.webp");
-    background-size: 100% 100%;
-    opacity: calc(0.48 * var(--theme-intensity, 1));
-}
-body.theme-autumn .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/autumn/hero-autumn-border.webp"); }
-body.theme-autumn .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/autumn/hero-autumn-border.webp"); transform: scaleX(-1); }
+body.theme-autumn .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/leaf.svg"); -webkit-mask-image: url("../images/themes/icons/leaf.svg"); }
+body.theme-autumn .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/acorn.svg"); -webkit-mask-image: url("../images/themes/icons/acorn.svg"); }
+body.theme-autumn .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/wind.svg"); -webkit-mask-image: url("../images/themes/icons/wind.svg"); }
+body.theme-autumn .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/leaf.svg"); -webkit-mask-image: url("../images/themes/icons/leaf.svg"); transform: rotate(150deg); }
+body.theme-autumn .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/acorn.svg"); -webkit-mask-image: url("../images/themes/icons/acorn.svg"); }
+body.theme-autumn .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/leaf.svg"); -webkit-mask-image: url("../images/themes/icons/leaf.svg"); }
+body.theme-autumn .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/acorn.svg"); -webkit-mask-image: url("../images/themes/icons/acorn.svg"); }
 body.theme-autumn .menu-section-title::before,
 body.theme-autumn .ballot-section::before,
-body.theme-autumn .footer::before { background-image: url("../images/themes/autumn/hero-autumn-border.webp"); }
+body.theme-autumn .footer::before { mask-image: url("../images/themes/icons/leaf.svg"); -webkit-mask-image: url("../images/themes/icons/leaf.svg"); }
 
 /* ---------- Winter ---------- */
 body.theme-winter {
@@ -312,30 +420,21 @@ body.theme-winter {
     --burgundy-light: #4f86ac;
     --line: rgba(60, 100, 130, 0.22);
     --theme-accent: #6f95b0;
-    --theme-accent-2: #cfe0ea;
+    --theme-accent-2: #4f86ac;
     background:
         radial-gradient(circle at top left, rgba(255,255,255,.25), transparent 38rem),
         linear-gradient(180deg, #e7eef3 0%, #dbe6ee 45%, #cfdce6 100%);
 }
-body.theme-winter .theme-hero-decor {
-    background-image: url("../images/themes/winter/hero-snowman-scenery.svg");
-    background-position: bottom right;
-    background-size: 42%;
-    opacity: calc(0.4 * var(--theme-intensity, 1));
-}
-body.theme-winter .theme-hero-decor::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background-image: url("../images/themes/winter/accent-snowflake-frame.webp");
-    background-size: 100% 100%;
-    opacity: calc(0.22 * var(--theme-intensity, 1));
-}
-body.theme-winter .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/winter/accent-snowflake-frame.webp"); }
-body.theme-winter .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/winter/hero-snowman-scenery.svg"); }
+body.theme-winter .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/snowflake.svg"); -webkit-mask-image: url("../images/themes/icons/snowflake.svg"); }
+body.theme-winter .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/moon-stars.svg"); -webkit-mask-image: url("../images/themes/icons/moon-stars.svg"); }
+body.theme-winter .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/tree-evergreen.svg"); -webkit-mask-image: url("../images/themes/icons/tree-evergreen.svg"); }
+body.theme-winter .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/star.svg"); -webkit-mask-image: url("../images/themes/icons/star.svg"); }
+body.theme-winter .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/snowflake.svg"); -webkit-mask-image: url("../images/themes/icons/snowflake.svg"); }
+body.theme-winter .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/snowflake.svg"); -webkit-mask-image: url("../images/themes/icons/snowflake.svg"); }
+body.theme-winter .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/tree-evergreen.svg"); -webkit-mask-image: url("../images/themes/icons/tree-evergreen.svg"); }
 body.theme-winter .menu-section-title::before,
 body.theme-winter .ballot-section::before,
-body.theme-winter .footer::before { background-image: url("../images/themes/winter/accent-snowflake-frame.webp"); }
+body.theme-winter .footer::before { mask-image: url("../images/themes/icons/snowflake.svg"); -webkit-mask-image: url("../images/themes/icons/snowflake.svg"); }
 
 /* ---------- New Year's ---------- */
 body.theme-new_years {
@@ -348,17 +447,16 @@ body.theme-new_years {
         radial-gradient(circle at top left, rgba(255,255,255,.22), transparent 38rem),
         linear-gradient(180deg, #efe6cf 0%, #e5d8ab 45%, #d8c583 100%);
 }
-body.theme-new_years .theme-hero-decor {
-    background-image: url("../images/themes/new_years/accent-confetti.svg");
-    background-repeat: repeat;
-    background-size: 130px;
-    opacity: calc(0.4 * var(--theme-intensity, 1));
-}
-body.theme-new_years .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/new_years/accent-fireworks-blue.webp"); }
-body.theme-new_years .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/new_years/accent-fireworks-green.webp"); }
+body.theme-new_years .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/sparkle.svg"); -webkit-mask-image: url("../images/themes/icons/sparkle.svg"); }
+body.theme-new_years .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/star.svg"); -webkit-mask-image: url("../images/themes/icons/star.svg"); }
+body.theme-new_years .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/confetti.svg"); -webkit-mask-image: url("../images/themes/icons/confetti.svg"); }
+body.theme-new_years .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/crown.svg"); -webkit-mask-image: url("../images/themes/icons/crown.svg"); }
+body.theme-new_years .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/moon-stars.svg"); -webkit-mask-image: url("../images/themes/icons/moon-stars.svg"); }
+body.theme-new_years .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/sparkle.svg"); -webkit-mask-image: url("../images/themes/icons/sparkle.svg"); }
+body.theme-new_years .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/confetti.svg"); -webkit-mask-image: url("../images/themes/icons/confetti.svg"); }
 body.theme-new_years .menu-section-title::before,
 body.theme-new_years .ballot-section::before,
-body.theme-new_years .footer::before { background-image: url("../images/themes/new_years/accent-confetti.svg"); }
+body.theme-new_years .footer::before { mask-image: url("../images/themes/icons/sparkle.svg"); -webkit-mask-image: url("../images/themes/icons/sparkle.svg"); }
 
 /* ---------- Valentine's Day ---------- */
 body.theme-valentines {
@@ -371,16 +469,16 @@ body.theme-valentines {
         radial-gradient(circle at top left, rgba(255,255,255,.25), transparent 38rem),
         linear-gradient(180deg, #fbe7ec 0%, #f7d3dd 45%, #f2bfce 100%);
 }
-body.theme-valentines .theme-hero-decor {
-    background-image: url("../images/themes/valentines/hero-floral-heart.webp");
-    background-size: 100% 100%;
-    opacity: calc(0.48 * var(--theme-intensity, 1));
-}
-body.theme-valentines .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/valentines/accent-rose.webp"); }
-body.theme-valentines .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/valentines/accent-rose.webp"); transform: scaleX(-1); }
+body.theme-valentines .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/heart.svg"); -webkit-mask-image: url("../images/themes/icons/heart.svg"); }
+body.theme-valentines .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/flower.svg"); -webkit-mask-image: url("../images/themes/icons/flower.svg"); }
+body.theme-valentines .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/heart-straight.svg"); -webkit-mask-image: url("../images/themes/icons/heart-straight.svg"); }
+body.theme-valentines .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/sparkle.svg"); -webkit-mask-image: url("../images/themes/icons/sparkle.svg"); }
+body.theme-valentines .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/heart.svg"); -webkit-mask-image: url("../images/themes/icons/heart.svg"); }
+body.theme-valentines .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/heart.svg"); -webkit-mask-image: url("../images/themes/icons/heart.svg"); }
+body.theme-valentines .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/flower.svg"); -webkit-mask-image: url("../images/themes/icons/flower.svg"); }
 body.theme-valentines .menu-section-title::before,
 body.theme-valentines .ballot-section::before,
-body.theme-valentines .footer::before { background-image: url("../images/themes/valentines/accent-rose.webp"); }
+body.theme-valentines .footer::before { mask-image: url("../images/themes/icons/heart.svg"); -webkit-mask-image: url("../images/themes/icons/heart.svg"); }
 
 /* ---------- St. Patrick's Day ---------- */
 body.theme-st_patricks {
@@ -393,23 +491,17 @@ body.theme-st_patricks {
         radial-gradient(circle at top left, rgba(255,255,255,.22), transparent 38rem),
         linear-gradient(180deg, #e3efe2 0%, #d3e6d0 45%, #c1dabd 100%);
 }
-/* A handful of tastefully-placed clovers (the same licensed asset,
-   deliberately repeated at different positions/sizes) rather than
-   one lone icon -- see images/themes/ARTWORK-CREDITS.md. */
-body.theme-st_patricks .theme-hero-decor {
-    background-image:
-        url("../images/themes/st_patricks/accent-clover.svg"),
-        url("../images/themes/st_patricks/accent-clover.svg"),
-        url("../images/themes/st_patricks/accent-clover.svg");
-    background-position: 8% 85%, 92% 15%, 50% 55%;
-    background-size: 56px, 42px, 48px;
-    opacity: calc(0.42 * var(--theme-intensity, 1));
-}
-body.theme-st_patricks .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/st_patricks/accent-clover.svg"); }
-body.theme-st_patricks .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/st_patricks/accent-clover.svg"); }
+/* A handful of tastefully-placed clovers rather than one lone icon. */
+body.theme-st_patricks .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/clover.svg"); -webkit-mask-image: url("../images/themes/icons/clover.svg"); }
+body.theme-st_patricks .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/clover.svg"); -webkit-mask-image: url("../images/themes/icons/clover.svg"); }
+body.theme-st_patricks .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/rainbow.svg"); -webkit-mask-image: url("../images/themes/icons/rainbow.svg"); }
+body.theme-st_patricks .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/clover.svg"); -webkit-mask-image: url("../images/themes/icons/clover.svg"); }
+body.theme-st_patricks .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/sparkle.svg"); -webkit-mask-image: url("../images/themes/icons/sparkle.svg"); }
+body.theme-st_patricks .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/clover.svg"); -webkit-mask-image: url("../images/themes/icons/clover.svg"); }
+body.theme-st_patricks .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/clover.svg"); -webkit-mask-image: url("../images/themes/icons/clover.svg"); }
 body.theme-st_patricks .menu-section-title::before,
 body.theme-st_patricks .ballot-section::before,
-body.theme-st_patricks .footer::before { background-image: url("../images/themes/st_patricks/accent-clover.svg"); }
+body.theme-st_patricks .footer::before { mask-image: url("../images/themes/icons/clover.svg"); -webkit-mask-image: url("../images/themes/icons/clover.svg"); }
 
 /* ---------- Easter ---------- */
 body.theme-easter {
@@ -422,17 +514,16 @@ body.theme-easter {
         radial-gradient(circle at top left, rgba(255,255,255,.25), transparent 38rem),
         linear-gradient(180deg, #f7ecf2 0%, #eee0ee 45%, #e3d9ea 100%);
 }
-body.theme-easter .theme-hero-decor {
-    background-image: url("../images/themes/easter/hero-bunny.svg");
-    background-position: bottom right;
-    background-size: 26%;
-    opacity: calc(0.5 * var(--theme-intensity, 1));
-}
-body.theme-easter .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/easter/accent-flower-corner.webp"); }
-body.theme-easter .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/easter/accent-flower-corner.webp"); transform: scaleX(-1); }
+body.theme-easter .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/rabbit.svg"); -webkit-mask-image: url("../images/themes/icons/rabbit.svg"); }
+body.theme-easter .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/egg.svg"); -webkit-mask-image: url("../images/themes/icons/egg.svg"); }
+body.theme-easter .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/flower.svg"); -webkit-mask-image: url("../images/themes/icons/flower.svg"); }
+body.theme-easter .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/butterfly.svg"); -webkit-mask-image: url("../images/themes/icons/butterfly.svg"); }
+body.theme-easter .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/egg-crack.svg"); -webkit-mask-image: url("../images/themes/icons/egg-crack.svg"); }
+body.theme-easter .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/rabbit.svg"); -webkit-mask-image: url("../images/themes/icons/rabbit.svg"); }
+body.theme-easter .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/egg.svg"); -webkit-mask-image: url("../images/themes/icons/egg.svg"); }
 body.theme-easter .menu-section-title::before,
 body.theme-easter .ballot-section::before,
-body.theme-easter .footer::before { background-image: url("../images/themes/easter/accent-flower-corner.webp"); }
+body.theme-easter .footer::before { mask-image: url("../images/themes/icons/egg.svg"); -webkit-mask-image: url("../images/themes/icons/egg.svg"); }
 
 /* ---------- Fourth of July ---------- */
 body.theme-fourth_of_july {
@@ -445,44 +536,41 @@ body.theme-fourth_of_july {
         radial-gradient(circle at top left, rgba(255,255,255,.25), transparent 38rem),
         linear-gradient(180deg, #eef1f7 0%, #dde4f0 45%, #ccd6e8 100%);
 }
-body.theme-fourth_of_july .theme-hero-decor {
-    background-image: url("../images/themes/fourth_of_july/hero-patriotic-stars.svg");
-    background-position: bottom right;
-    background-size: 32%;
-    opacity: calc(0.42 * var(--theme-intensity, 1));
-}
-body.theme-fourth_of_july .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/fourth_of_july/hero-patriotic-stars.svg"); }
-body.theme-fourth_of_july .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/fourth_of_july/hero-patriotic-stars.svg"); }
+body.theme-fourth_of_july .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/flag.svg"); -webkit-mask-image: url("../images/themes/icons/flag.svg"); }
+body.theme-fourth_of_july .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/star.svg"); -webkit-mask-image: url("../images/themes/icons/star.svg"); }
+body.theme-fourth_of_july .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/sparkle.svg"); -webkit-mask-image: url("../images/themes/icons/sparkle.svg"); }
+body.theme-fourth_of_july .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/confetti.svg"); -webkit-mask-image: url("../images/themes/icons/confetti.svg"); }
+body.theme-fourth_of_july .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/star.svg"); -webkit-mask-image: url("../images/themes/icons/star.svg"); }
+body.theme-fourth_of_july .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/flag.svg"); -webkit-mask-image: url("../images/themes/icons/flag.svg"); }
+body.theme-fourth_of_july .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/star.svg"); -webkit-mask-image: url("../images/themes/icons/star.svg"); }
 body.theme-fourth_of_july .menu-section-title::before,
 body.theme-fourth_of_july .ballot-section::before,
-body.theme-fourth_of_july .footer::before { background-image: url("../images/themes/fourth_of_july/hero-patriotic-stars.svg"); }
+body.theme-fourth_of_july .footer::before { mask-image: url("../images/themes/icons/star.svg"); -webkit-mask-image: url("../images/themes/icons/star.svg"); }
 
 /* ---------- Halloween ---------- */
 body.theme-halloween {
     /* Darker than white-background themes so the accent still clears
        4.5:1 against both a white checkout-style card and the light
-       hero/heading panel above -- the vivid pumpkin orange lives in
-       --theme-accent for decorative (non-text) use only. */
+       hero/heading panel above. */
     --burgundy: #a8541a;
     --burgundy-light: #c06b28;
     --line: rgba(224, 138, 46, 0.3);
-    --theme-accent: #e08a2e;
+    --theme-accent: #a8541a;
     --theme-accent-2: #7c5a96;
     background:
         radial-gradient(circle at top left, rgba(255,255,255,.06), transparent 38rem),
         linear-gradient(180deg, #241a2b 0%, #1c1420 45%, #150f18 100%);
 }
-body.theme-halloween .theme-hero-decor {
-    background-image: url("../images/themes/halloween/hero-landscape.svg");
-    background-position: bottom right;
-    background-size: 46%;
-    opacity: calc(0.42 * var(--theme-intensity, 1));
-}
-body.theme-halloween .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/halloween/accent-bat.svg"); }
-body.theme-halloween .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/halloween/accent-jack-o-lantern.svg"); }
+body.theme-halloween .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/ghost.svg"); -webkit-mask-image: url("../images/themes/icons/ghost.svg"); }
+body.theme-halloween .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/moon-stars.svg"); -webkit-mask-image: url("../images/themes/icons/moon-stars.svg"); }
+body.theme-halloween .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/cat.svg"); -webkit-mask-image: url("../images/themes/icons/cat.svg"); }
+body.theme-halloween .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/bone.svg"); -webkit-mask-image: url("../images/themes/icons/bone.svg"); }
+body.theme-halloween .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/broom.svg"); -webkit-mask-image: url("../images/themes/icons/broom.svg"); }
+body.theme-halloween .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/ghost.svg"); -webkit-mask-image: url("../images/themes/icons/ghost.svg"); }
+body.theme-halloween .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/cat.svg"); -webkit-mask-image: url("../images/themes/icons/cat.svg"); }
 body.theme-halloween .menu-section-title::before,
 body.theme-halloween .ballot-section::before,
-body.theme-halloween .footer::before { background-image: url("../images/themes/halloween/accent-ghost.svg"); }
+body.theme-halloween .footer::before { mask-image: url("../images/themes/icons/ghost.svg"); -webkit-mask-image: url("../images/themes/icons/ghost.svg"); }
 
 /* ---------- Thanksgiving ---------- */
 body.theme-thanksgiving {
@@ -495,21 +583,16 @@ body.theme-thanksgiving {
         radial-gradient(circle at top left, rgba(255,255,255,.2), transparent 38rem),
         linear-gradient(180deg, #f0dcc0 0%, #e6c89a 45%, #d9b076 100%);
 }
-body.theme-thanksgiving .theme-hero-decor {
-    /* This particular frame asset is tall/portrait (900x1476) --
-       stretching it to fill a short, wide hero box like the other
-       frame-mode themes distorts it badly, so it's positioned and
-       scaled like a scene instead, preserving its own aspect ratio. */
-    background-image: url("../images/themes/thanksgiving/hero-frame.webp");
-    background-position: right center;
-    background-size: contain;
-    opacity: calc(0.5 * var(--theme-intensity, 1));
-}
-body.theme-thanksgiving .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/thanksgiving/accent-turkey.svg"); }
-body.theme-thanksgiving .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/thanksgiving/accent-leafy-frame.webp"); }
+body.theme-thanksgiving .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/turkey.svg"); -webkit-mask-image: url("../images/themes/icons/turkey.svg"); width: 70px; height: 70px; }
+body.theme-thanksgiving .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/leaf.svg"); -webkit-mask-image: url("../images/themes/icons/leaf.svg"); }
+body.theme-thanksgiving .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/acorn.svg"); -webkit-mask-image: url("../images/themes/icons/acorn.svg"); }
+body.theme-thanksgiving .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/basket.svg"); -webkit-mask-image: url("../images/themes/icons/basket.svg"); }
+body.theme-thanksgiving .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/bowl-food.svg"); -webkit-mask-image: url("../images/themes/icons/bowl-food.svg"); }
+body.theme-thanksgiving .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/turkey.svg"); -webkit-mask-image: url("../images/themes/icons/turkey.svg"); }
+body.theme-thanksgiving .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/leaf.svg"); -webkit-mask-image: url("../images/themes/icons/leaf.svg"); }
 body.theme-thanksgiving .menu-section-title::before,
 body.theme-thanksgiving .ballot-section::before,
-body.theme-thanksgiving .footer::before { background-image: url("../images/themes/thanksgiving/accent-turkey.svg"); }
+body.theme-thanksgiving .footer::before { mask-image: url("../images/themes/icons/turkey.svg"); -webkit-mask-image: url("../images/themes/icons/turkey.svg"); }
 
 /* ---------- Christmas ---------- */
 body.theme-christmas {
@@ -522,12 +605,11 @@ body.theme-christmas {
         radial-gradient(circle at top left, rgba(255,255,255,.25), transparent 38rem),
         linear-gradient(180deg, #eef5ee 0%, #dff0e3 45%, #cfe6d4 100%);
 }
-body.theme-christmas .theme-hero-decor {
-    background-image: url("../images/themes/christmas/hero-tree.svg");
-    background-position: bottom right;
-    background-size: 26%;
-    opacity: calc(0.5 * var(--theme-intensity, 1));
-}
+body.theme-christmas .theme-hero-icon.slot-1 { mask-image: url("../images/themes/icons/tree-evergreen.svg"); -webkit-mask-image: url("../images/themes/icons/tree-evergreen.svg"); }
+body.theme-christmas .theme-hero-icon.slot-2 { mask-image: url("../images/themes/icons/gift.svg"); -webkit-mask-image: url("../images/themes/icons/gift.svg"); }
+body.theme-christmas .theme-hero-icon.slot-3 { mask-image: url("../images/themes/icons/bell.svg"); -webkit-mask-image: url("../images/themes/icons/bell.svg"); }
+body.theme-christmas .theme-hero-icon.slot-4 { mask-image: url("../images/themes/icons/star.svg"); -webkit-mask-image: url("../images/themes/icons/star.svg"); }
+body.theme-christmas .theme-hero-icon.slot-5 { mask-image: url("../images/themes/icons/snowflake.svg"); -webkit-mask-image: url("../images/themes/icons/snowflake.svg"); }
 /* Falling snow, drawn with CSS only -- no image asset. Confined to
    the hero decor layer so it never drifts across other sections. */
 body.theme-christmas .theme-hero-decor::after {
@@ -540,7 +622,7 @@ body.theme-christmas .theme-hero-decor::after {
         radial-gradient(circle, #fff 2px, transparent 2.2px);
     background-size: 90px 130px, 60px 90px, 150px 190px;
     background-position: 10px 10px, 40px 60px, 90px 20px;
-    opacity: calc(0.55 * var(--theme-intensity, 1));
+    opacity: calc(0.45 * var(--theme-intensity, 1));
     animation: theme-christmas-snow 16s linear infinite;
 }
 @keyframes theme-christmas-snow {
@@ -550,8 +632,8 @@ body.theme-christmas .theme-hero-decor::after {
 @media (prefers-reduced-motion: reduce) {
     body.theme-christmas .theme-hero-decor::after { animation: none; }
 }
-body.theme-christmas .theme-decor-mount.theme-decor-top { background-image: url("../images/themes/christmas/accent-gift-box.svg"); }
-body.theme-christmas .theme-decor-mount.theme-decor-bottom { background-image: url("../images/themes/christmas/accent-holly.svg"); }
+body.theme-christmas .theme-decor-mount.theme-decor-top { mask-image: url("../images/themes/icons/tree-evergreen.svg"); -webkit-mask-image: url("../images/themes/icons/tree-evergreen.svg"); }
+body.theme-christmas .theme-decor-mount.theme-decor-bottom { mask-image: url("../images/themes/icons/gift.svg"); -webkit-mask-image: url("../images/themes/icons/gift.svg"); }
 body.theme-christmas .menu-section-title::before,
 body.theme-christmas .ballot-section::before,
-body.theme-christmas .footer::before { background-image: url("../images/themes/christmas/accent-holly.svg"); }
+body.theme-christmas .footer::before { mask-image: url("../images/themes/icons/tree-evergreen.svg"); -webkit-mask-image: url("../images/themes/icons/tree-evergreen.svg"); }

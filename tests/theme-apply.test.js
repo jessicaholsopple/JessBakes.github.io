@@ -61,7 +61,9 @@ function loadThemeApplySandbox({ search = "", resolvedRow = null, error = null, 
             className: "",
             attributes: {},
             innerHTML: "",
-            setAttribute(name, value) { this.attributes[name] = value; }
+            children: [],
+            setAttribute(name, value) { this.attributes[name] = value; },
+            appendChild(el) { this.children.push(el); return el; }
         })
     };
 
@@ -139,7 +141,7 @@ test("3. a valid resolved theme adds body.theme-<key> and sets the CSS custom pr
     assert.equal(cssProps["--theme-graphics"], "normal");
 });
 
-test("4. a valid resolved theme with normal graphics mounts the hero composition plus two corner decor elements", async () => {
+test("4. a valid resolved theme with normal graphics mounts the hero composition (with its 5-icon cluster) plus two corner decor elements", async () => {
     const { sandbox, appendedMounts } = loadThemeApplySandbox({
         resolvedRow: { resolved_theme_key: "christmas", resolved_accent_intensity: 1, resolved_graphics_visibility: "normal" }
     });
@@ -151,6 +153,13 @@ test("4. a valid resolved theme with normal graphics mounts the hero composition
     const cornerMounts = appendedMounts.filter(m => m.className.includes("theme-decor-mount"));
     assert.equal(heroMounts.length, 1);
     assert.equal(cornerMounts.length, 2);
+
+    const heroMount = heroMounts[0];
+    assert.equal(heroMount.children.length, 5);
+    assert.deepEqual(
+        heroMount.children.map(c => c.className),
+        ["theme-hero-icon slot-1", "theme-hero-icon slot-2", "theme-hero-icon slot-3", "theme-hero-icon slot-4", "theme-hero-icon slot-5"]
+    );
 });
 
 test("4b. on a page with no .hero/.page-hero section, only the two corner decor elements mount (no hero mount)", async () => {
@@ -272,15 +281,17 @@ test("12. THEME_KEYS recognizes exactly the 12 non-Classic catalog themes", () =
     assert.equal(Object.keys(sandbox.__THEME_KEYS).length, EXPECTED_THEME_KEYS.length);
 });
 
-test("14. css/themes.css defines a real, existing local image for every theme's hero composition and every image/themes/ url() it references actually exists on disk", () => {
+test("14. css/themes.css assigns a real icon to all 5 hero slots for every theme, and every images/themes/ url() it references actually exists on disk", () => {
     const css = read("css/themes.css");
 
     for (const key of EXPECTED_THEME_KEYS) {
-        const bodyBlockMatch = new RegExp(
-            "body\\.theme-" + key + "\\s*\\.theme-hero-decor\\s*\\{[^}]*background-image\\s*:\\s*url\\(",
-            "s"
-        );
-        assert.match(css, bodyBlockMatch, `body.theme-${key} .theme-hero-decor should set a background-image`);
+        for (let slot = 1; slot <= 5; slot++) {
+            const slotMatch = new RegExp(
+                "body\\.theme-" + key + "\\s*\\.theme-hero-icon\\.slot-" + slot + "\\s*\\{[^}]*mask-image\\s*:\\s*url\\(",
+                "s"
+            );
+            assert.match(css, slotMatch, `body.theme-${key} .theme-hero-icon.slot-${slot} should set a mask-image`);
+        }
     }
 
     const urls = [...css.matchAll(/url\("(\.\.\/images\/themes\/[^"]+)"\)/g)].map(m => m[1]);
@@ -288,7 +299,7 @@ test("14. css/themes.css defines a real, existing local image for every theme's 
 
     for (const relUrl of urls) {
         // relUrl is relative to css/themes.css itself (e.g.
-        // "../images/themes/halloween/hero-landscape.svg").
+        // "../images/themes/icons/ghost.svg").
         const resolved = path.join(ROOT, "css", relUrl);
         assert.ok(fs.existsSync(resolved), `themes.css references a missing file: ${relUrl}`);
     }
