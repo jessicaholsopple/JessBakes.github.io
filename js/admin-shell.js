@@ -89,6 +89,12 @@
             items: [
                 { href: "email.html", label: "Email" }
             ]
+        },
+        {
+            label: "Site",
+            items: [
+                { href: "themes.html", label: "Themes" }
+            ]
         }
     ];
 

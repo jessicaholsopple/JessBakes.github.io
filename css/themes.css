@@ -1,0 +1,95 @@
+/* ==========================================
+   THEMES -- seasonal/holiday accent colors + decorative graphics
+   ==========================================
+
+   Loaded AFTER css/style.css on public pages that also load
+   js/theme-apply.js. Adds accents only -- never redesigns layout,
+   typography, or the burgundy/cream brand palette defined in
+   style.css's :root. Classic needs zero rules here at all (no
+   body.theme-classic class is ever applied -- see theme-apply.js).
+
+   STRUCTURAL SAFETY RULE, enforced by scoping, not just convention:
+   every decorative rule in this file lives EXCLUSIVELY under
+   .theme-decor-mount (an empty element theme-apply.js injects fresh
+   on every page load -- never existing page markup). This file must
+   NEVER contain a selector matching any of: nav, .navbar, .menu-item,
+   .cart, .cart-*, input, select, textarea, button, .btn, form,
+   .notice-card, .hero h1, .hero h2, .hero p, .price,
+   #menuContainer *, .ballot-*, .checkout-*, .site-header (beyond the
+   scoped mount itself). A future edit to this file must preserve that
+   -- it's what makes "illustrations never cover text, products,
+   buttons, or forms" true by construction.
+
+   .theme-decor-mount is `position:fixed` with a NEGATIVE z-index,
+   which (per the CSS2.1 stacking order) reliably paints it behind
+   every ordinary in-flow page element (header, hero, cards, footer)
+   automatically, with no per-page coordination needed -- it can only
+   ever show through in the gaps of the page's own background.
+   ========================================== */
+
+:root {
+    --theme-intensity: 1;
+    --theme-graphics: normal;
+}
+
+.theme-decor-mount {
+    position: fixed;
+    z-index: -1;
+    pointer-events: none;
+    width: 88px;
+    height: 88px;
+    color: var(--theme-accent, var(--burgundy));
+    opacity: calc(0.24 * var(--theme-intensity, 1));
+}
+
+.theme-decor-mount.theme-decor-top {
+    top: 84px;
+    right: 12px;
+}
+
+.theme-decor-mount.theme-decor-bottom {
+    bottom: 16px;
+    left: 12px;
+}
+
+@media (min-width: 900px) {
+    .theme-decor-mount {
+        width: 130px;
+        height: 130px;
+    }
+    .theme-decor-mount.theme-decor-top {
+        top: 110px;
+        right: 28px;
+    }
+    .theme-decor-mount.theme-decor-bottom {
+        bottom: 28px;
+        left: 28px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* Belt-and-suspenders -- theme-apply.js already skips mounting
+       decor at all when this is set, but if a mount somehow exists
+       (e.g. a future code path), it must never animate. */
+    .theme-decor-mount, .theme-decor-mount * {
+        animation: none !important;
+        transition: none !important;
+    }
+}
+
+/* ==========================================
+   PER-THEME ACCENT TOKENS
+   ========================================== */
+
+body.theme-spring          { --theme-accent: #d68fa3; --theme-accent-2: #7fa06b; }
+body.theme-summer          { --theme-accent: #e0a63a; --theme-accent-2: #4a90a4; }
+body.theme-autumn          { --theme-accent: #b5651d; --theme-accent-2: #8a4a2a; }
+body.theme-winter          { --theme-accent: #6f95b0; --theme-accent-2: #cfe0ea; }
+body.theme-new_years       { --theme-accent: #b08d2f; --theme-accent-2: #3b2a24; }
+body.theme-valentines      { --theme-accent: #c2385a; --theme-accent-2: #e8a2b5; }
+body.theme-st_patricks     { --theme-accent: #2f7d4f; --theme-accent-2: #7bab5e; }
+body.theme-easter          { --theme-accent: #c98ab0; --theme-accent-2: #8fbf8a; }
+body.theme-fourth_of_july  { --theme-accent: #3a5a9c; --theme-accent-2: #b5362f; }
+body.theme-halloween       { --theme-accent: #b5601a; --theme-accent-2: #4a3b52; }
+body.theme-thanksgiving    { --theme-accent: #9c5a2a; --theme-accent-2: #c98a2f; }
+body.theme-christmas       { --theme-accent: #2f6b45; --theme-accent-2: #b5362f; }

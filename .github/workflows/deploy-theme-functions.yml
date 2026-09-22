@@ -1,0 +1,37 @@
+name: Deploy Themes Edge Functions
+
+# Manual trigger only, deliberately -- same reasoning as
+# deploy-vacation-functions.yml / deploy-email-functions.yml /
+# deploy-push-notifications.yml: deploying a function is a real,
+# user-facing change and should be a conscious action, never an
+# automatic side effect of a push.
+#
+# Uses the SAME repository secret as the other deploy workflows
+# (SUPABASE_ACCESS_TOKEN) -- no new GitHub secret is needed.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        run: supabase link --project-ref fbfvqiuhwqfhhxufgmla
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      # JWT-verified: callable only by an authenticated admin session
+      # or the service-role JWT (pg_cron, for the theme-scheduler
+      # cron job). Independently checks is_admin()/service-role --
+      # see _shared/supabaseAdmin.ts.
+      - name: Deploy Themes functions
+        run: |
+          supabase functions deploy theme-scheduler
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
