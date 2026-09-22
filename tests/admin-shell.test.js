@@ -42,9 +42,9 @@ test("3. no nav item's href or label is empty", () => {
     });
 });
 
-test("4. groups are logically named per the confirmed design (Overview/Orders/Production/Catalog/Inventory/Sales/Community)", () => {
+test("4. groups are logically named per the confirmed design (Overview/Orders/Production/Catalog/Inventory/Sales/Community/Email/Site)", () => {
     const labels = AdminShell.NAV_GROUPS.map(g => g.label);
-    assert.deepEqual(labels, ["Overview", "Orders", "Production", "Catalog", "Inventory", "Sales", "Community", "Email"]);
+    assert.deepEqual(labels, ["Overview", "Orders", "Production", "Catalog", "Inventory", "Sales", "Community", "Email", "Site"]);
 });
 
 test("5. currentPageFile extracts the filename from a full path, defaulting to dashboard.html for the root", () => {

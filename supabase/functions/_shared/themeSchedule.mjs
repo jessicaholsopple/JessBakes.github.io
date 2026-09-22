@@ -33,6 +33,11 @@
 
 import { zonedParts, parseLocalTimeToMinutes } from "./schedule.mjs";
 
+// Re-exported for convenience -- consumers that need a UTC->local
+// read (e.g. admin/js/admin-themes.js's timeline month boundaries)
+// shouldn't need a second import from ./schedule.mjs just for this.
+export { zonedParts };
+
 const DEFAULT_TIMEZONE = "Europe/Berlin";
 
 /* ==========================================
