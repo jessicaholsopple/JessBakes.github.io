@@ -2,17 +2,63 @@
    CART.JS
 ========================================== */
 
-const CART_KEY = "jess_bakes_cart";
+// Pre-session-based cart key (localStorage, no expiry at all) -- kept
+// only so readCartFromStorage() can find and remove it from a
+// returning visitor's browser. Never written to again.
+const LEGACY_CART_KEY = "jess_bakes_cart";
+
+// The cart now lives in sessionStorage (cleared automatically when the
+// tab/browser closes -- never indefinitely persistent) AND carries its
+// own lastActivity timestamp so it also expires after 30 minutes of no
+// cart activity even if the tab is left open. A customer was able to
+// submit an order for an item no longer on the current menu because an
+// old cart item survived indefinitely in localStorage; this, plus the
+// live-menu revalidation below and the server-side validation in
+// submit_order (see supabase/migrations/20260831090000_order_server_side_validation.sql),
+// are the layered fix.
+const CART_SESSION_KEY = "jess_bakes_cart_session";
+const CART_EXPIRY_MS = 30 * 60 * 1000;
 
 let cart = [];
 let cartMenuItems = [];
 let rerenderMenu = null;
+let cartExpiryTimerId = null;
+let menuRevalidationInFlight = false;
 
-try {
-    cart = JSON.parse(localStorage.getItem(CART_KEY)) || [];
-} catch {
-    cart = [];
+/** Reads the cart out of sessionStorage, treating it as empty (and
+ *  discarding the stored value) if lastActivity is missing or more
+ *  than CART_EXPIRY_MS old. Always removes the old localStorage key
+ *  first, regardless of whether a session cart exists -- this is what
+ *  makes "invalidate and remove any legacy cart data" true for every
+ *  returning visitor's browser, not just new ones. */
+function readCartFromStorage() {
+    try {
+        localStorage.removeItem(LEGACY_CART_KEY);
+    } catch {
+        // Not fatal -- e.g. localStorage disabled. The session cart
+        // below is the real source of truth either way.
+    }
+
+    try {
+        const raw = sessionStorage.getItem(CART_SESSION_KEY);
+        if (!raw) return [];
+
+        const parsed = JSON.parse(raw);
+        const lastActivity = Number(parsed && parsed.lastActivity);
+        const items = (parsed && Array.isArray(parsed.items)) ? parsed.items : [];
+
+        if (!items.length || !Number.isFinite(lastActivity) || Date.now() - lastActivity > CART_EXPIRY_MS) {
+            sessionStorage.removeItem(CART_SESSION_KEY);
+            return [];
+        }
+
+        return items;
+    } catch {
+        return [];
+    }
 }
+
+cart = readCartFromStorage();
 
 /* ==========================================
    INITIALIZE
@@ -23,15 +69,50 @@ function initializeCart(menuItems, renderMenuCallback) {
     rerenderMenu = renderMenuCallback;
 
     ensureCheckoutModal();
+
+    // The menu this page just fetched (menu.js's loadMenu(), always
+    // `.eq("available", true)`) is already live/current -- validate
+    // the just-loaded cart against it synchronously, no extra network
+    // round-trip needed for this first pass.
+    validateCartAgainstMenu(cartMenuItems);
+
     renderCart();
+
+    if (cartExpiryTimerId === null) {
+        cartExpiryTimerId = setInterval(checkCartExpiry, 60 * 1000);
+    }
+
+    // Covers "returns from the background" / "resumes after being
+    // idle": a tab that was hidden or unfocused for a while gets both
+    // an expiry check and a fresh live-menu revalidation the moment it
+    // becomes active again, never relying solely on the 60s interval
+    // (which does not run reliably in a backgrounded/throttled tab).
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+            checkCartExpiry();
+            refreshAndValidateCart();
+        }
+    });
+    window.addEventListener("focus", () => {
+        checkCartExpiry();
+        refreshAndValidateCart();
+    });
 }
 
 /* ==========================================
-   LOCAL STORAGE
+   SESSION STORAGE
 ========================================== */
 
 function saveCart() {
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    try {
+        sessionStorage.setItem(CART_SESSION_KEY, JSON.stringify({
+            items: cart,
+            lastActivity: Date.now()
+        }));
+    } catch {
+        // Not fatal -- the in-memory cart for this page view still works;
+        // it just won't survive a reload if storage is unavailable.
+    }
 }
 
 function clearCart() {
@@ -41,6 +122,162 @@ function clearCart() {
 
     if (rerenderMenu) {
         rerenderMenu();
+    }
+}
+
+/** Expires the cart after CART_EXPIRY_MS of no cart activity, even
+ *  though the tab has stayed open the whole time (sessionStorage by
+ *  itself only handles the "tab/browser closed" case). Reads the
+ *  timestamp directly from storage rather than trusting any in-memory
+ *  value, so it's correct even if another tab in the same session last
+ *  touched the cart. */
+function checkCartExpiry() {
+    if (!cart.length) return;
+
+    let lastActivity = 0;
+    try {
+        const raw = sessionStorage.getItem(CART_SESSION_KEY);
+        lastActivity = Number(raw && JSON.parse(raw).lastActivity) || 0;
+    } catch {
+        lastActivity = 0;
+    }
+
+    if (lastActivity && Date.now() - lastActivity <= CART_EXPIRY_MS) {
+        return;
+    }
+
+    cart = [];
+    try {
+        sessionStorage.removeItem(CART_SESSION_KEY);
+    } catch {
+        // ignore
+    }
+    renderCart();
+
+    if (rerenderMenu) {
+        rerenderMenu();
+    }
+
+    alert("Your cart was cleared after 30 minutes of inactivity. Please add your items again.");
+}
+
+/* ==========================================
+   LIVE-MENU REVALIDATION
+
+   Removes anything from the cart that is no longer on the current,
+   live menu (inactive, unavailable, deleted, or -- for a Mix & Match
+   box -- no longer resolvable at its original size/flavors), and
+   silently-but-visibly refreshes the price of anything still valid
+   but changed, rather than ever letting a stale price reach checkout.
+   This is the client-side half of defense in depth; submit_order()
+   enforces the same facts authoritatively server-side regardless of
+   what this function does or misses.
+========================================== */
+
+function validateCartAgainstMenu(menuItems) {
+    const liveItems = Array.isArray(menuItems) ? menuItems : [];
+    const removedNames = [];
+    const changedNames = [];
+
+    cart = cart.filter(item => {
+        if (item.type === "builder") {
+            const builderProduct = liveItems.find(
+                m => m.id === item.id && m.product_type === "builder" && m.available === true
+            );
+
+            if (!builderProduct) {
+                removedNames.push(item.name);
+                return false;
+            }
+
+            const eligible = (typeof MixAndMatch !== "undefined")
+                ? MixAndMatch.getEligibleCookies(liveItems, builderProduct)
+                : [];
+            const eligibleIds = new Set(eligible.map(c => String(c.id)));
+            const stillEligible = (item.selections || []).every(s => eligibleIds.has(String(s.id)));
+
+            if (!stillEligible) {
+                removedNames.push(item.name);
+                return false;
+            }
+
+            if (Number(builderProduct.price) !== Number(item.price)) {
+                item.price = Number(builderProduct.price);
+                changedNames.push(item.name);
+            }
+
+            return true;
+        }
+
+        const menuItem = liveItems.find(
+            m => m.id === item.id && m.product_type === "standard" && m.available === true
+        );
+
+        if (!menuItem) {
+            removedNames.push(item.name);
+            return false;
+        }
+
+        if (Number(menuItem.price) !== Number(item.price)) {
+            item.price = Number(menuItem.price);
+            changedNames.push(item.name);
+        }
+
+        return true;
+    });
+
+    if (removedNames.length || changedNames.length) {
+        saveCart();
+        renderCart();
+
+        if (rerenderMenu) {
+            rerenderMenu();
+        }
+    }
+
+    if (removedNames.length) {
+        alert(
+            "Some items in your cart are no longer available and were removed: " +
+            removedNames.join(", ") + "."
+        );
+    } else if (changedNames.length) {
+        alert(
+            "The price changed for: " + changedNames.join(", ") +
+            ". Your cart has been updated to the current price."
+        );
+    }
+
+    return { removedNames, changedNames };
+}
+
+/** Fetches the live, current menu fresh from the database (never the
+ *  cartMenuItems snapshot from whenever the page first loaded) and
+ *  revalidates the cart against it. Called on tab resume and
+ *  immediately before checkout/submit -- never trusts that nothing
+ *  changed just because this page has been open a while. */
+async function refreshAndValidateCart() {
+    const noChange = { removedNames: [], changedNames: [] };
+
+    if (menuRevalidationInFlight || typeof supabaseClient === "undefined") {
+        return noChange;
+    }
+
+    menuRevalidationInFlight = true;
+
+    try {
+        const { data, error } = await supabaseClient
+            .from("menu_items")
+            .select("*")
+            .eq("available", true);
+
+        if (error || !data) {
+            return noChange;
+        }
+
+        cartMenuItems = data;
+        return validateCartAgainstMenu(cartMenuItems);
+    } finally {
+        menuRevalidationInFlight = false;
     }
 }
 
@@ -532,7 +769,8 @@ function ensureCheckoutModal() {
                     <label>Email</label>
                     <input
                         id="customerEmail"
-                        type="email">
+                        type="email"
+                        required>
                 </div>
 
                 <div class="form-group">
@@ -542,24 +780,6 @@ function ensureCheckoutModal() {
                         type="tel"
                         required>
                 </div>
-
-                <div class="form-group">
-
-    <label>Preferred Contact Method</label>
-
-    <select id="preferredContact" required>
-
-        <option value="text">
-            Text Message
-        </option>
-
-        <option value="email">
-            Email
-        </option>
-
-    </select>
-
-</div>
 
                 <div class="form-group">
                     <label>Order Type</label>
@@ -843,6 +1063,17 @@ async function openCheckoutModal() {
         return;
     }
 
+    // Re-check the live menu right before showing checkout -- never
+    // trust that cartMenuItems (fetched whenever this page first
+    // loaded) is still accurate, especially after the cart survived a
+    // tab resume. validateCartAgainstMenu() inside this call may empty
+    // the cart entirely (and already alerts the customer why).
+    await refreshAndValidateCart();
+
+    if (!cart.length) {
+        return;
+    }
+
     document.getElementById("checkoutModal").style.display = "flex";
     document.getElementById("checkoutForm").style.display = "grid";
     document.getElementById("checkoutSuccess").style.display = "none";
@@ -959,12 +1190,22 @@ async function submitOrder(event) {
     const customer_name = document.getElementById("customerName").value.trim();
     const customer_email = document.getElementById("customerEmail").value.trim();
     const customer_phone = document.getElementById("customerPhone").value.trim();
-    const preferred_contact = document.getElementById("preferredContact").value;
     const order_type = document.getElementById("orderType").value;
     const custom_details = document.getElementById("customOrderDetails").value.trim();
 
     if (!customer_name) {
         alert("Please enter your name.");
+        submitButton.disabled = false;
+        submitButton.textContent = "Submit Order";
+        return;
+    }
+
+    // Email is the only way order-received/order-confirmed updates ever
+    // reach a customer -- required here even though the <input required>
+    // attribute already blocks most empty submissions, since this
+    // function is also exercised directly (tests, programmatic retries).
+    if (!customer_email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer_email)) {
+        alert("Please enter a valid email address -- that's how I'll send your order updates.");
         submitButton.disabled = false;
         submitButton.textContent = "Submit Order";
         return;
@@ -1045,6 +1286,30 @@ async function submitOrder(event) {
 
     }
 
+    // Final, fresh re-check against the live menu immediately before
+    // submitting -- the same reasoning as the pickup-date re-check
+    // above (never trust what was true when checkout first opened).
+    // If anything was removed or had its price refreshed, do NOT
+    // submit this attempt: the customer needs to see the updated
+    // summary/total and click Submit again to confirm, exactly like
+    // the pickup-cutoff-crossed case below.
+    const revalidation = await refreshAndValidateCart();
+
+    if (!cart.length) {
+        submitButton.disabled = false;
+        submitButton.textContent = "Submit Order";
+        return;
+    }
+
+    if (revalidation.removedNames.length || revalidation.changedNames.length) {
+        renderCheckoutSummary();
+
+        submitButton.disabled = false;
+        submitButton.textContent = "Submit Order";
+
+        return;
+    }
+
     const items = cart.map(item => ({
 
         menu_item_id:
@@ -1075,14 +1340,21 @@ async function submitOrder(event) {
     // weekly order is computed authoritatively server-side (see
     // enforce_weekly_pickup_schedule in the migration) from the exact
     // same database clock fetchPickupPreview() just checked above --
-    // never from anything this function sends. Both the order and every
-    // order_items row are created in one transaction, so a failure
-    // partway through can never leave a headless order with no items.
+    // never from anything this function sends. Likewise, every item's
+    // price_at_purchase/line_total/builder_details and the order's own
+    // subtotal are re-derived server-side from the live menu_items
+    // table (see supabase/migrations/20260831090000_order_server_side_validation.sql)
+    // -- whatever this function sends for those fields is validated,
+    // never trusted outright, so a stale cart can never submit a
+    // deleted/unavailable item or an old price. Both the order and
+    // every order_items row are created in one transaction, so a
+    // failure partway through (including a failed validation) can
+    // never leave a headless order with no items, or a partial order
+    // at all.
     const { data: order, error } = await supabaseClient.rpc("submit_order", {
         p_customer_name: customer_name,
         p_customer_email: customer_email,
         p_customer_phone: customer_phone,
-        p_preferred_contact: preferred_contact,
         p_order_type: order_type,
         p_event_date: event_date,
         p_notes: notes,

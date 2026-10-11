@@ -958,6 +958,18 @@ body {
     color: #555;
 }
 
+.contact-message-unread-row {
+    font-weight: 700;
+    background: #fbf2ea;
+}
+
+.contact-detail-message {
+    white-space: pre-wrap;
+    background: #f6efea;
+    border-radius: 12px;
+    padding: 14px 16px;
+}
+
 .status-cancelled {
     background: #ffe0e0;
     color: #b23232;
@@ -1117,6 +1129,22 @@ body {
 .sidebar-nav a.active {
     background: #5b2018;
     color: white;
+}
+
+.nav-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    margin-left: 8px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #b5362f;
+    color: #fff;
+    font-size: .72rem;
+    font-weight: 700;
+    vertical-align: middle;
 }
 
 @media(max-width:1000px) {

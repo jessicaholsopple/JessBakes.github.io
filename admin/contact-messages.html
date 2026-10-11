@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+    <title>Contact Messages | Jess Bakes Sourdough</title>
+
+    <link rel="stylesheet"
+          href="../css/admin.css">
+
+  <link rel="icon" type="image/png" href="../images/jess-bakes-logo.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/images/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Jess Bakes">
+  <meta name="theme-color" content="#7b2b22">
+</head>
+
+<body>
+
+<div class="admin-shell">
+
+    <!-- Sidebar -->
+
+    <aside class="sidebar">
+
+        <div class="sidebar-brand">
+
+            <h2>Jess Bakes</h2>
+
+            <span>SOURDOUGH</span>
+
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Admin navigation"></nav>
+
+    </aside>
+
+    <main class="admin-content">
+
+        <header class="page-header">
+
+            <div>
+
+                <h1>Contact Messages</h1>
+
+                <p>
+                    Messages submitted through the public
+                    <a href="../contact.html" target="_blank" rel="noopener">Contact page</a>
+                    form. Separate from orders -- submitting this form never
+                    creates or changes an order.
+                </p>
+
+            </div>
+
+        </header>
+
+        <div class="stats-grid">
+
+            <div class="stat-card">
+                <h3>Unread</h3>
+                <span id="contactUnreadCount">0</span>
+            </div>
+
+            <div class="stat-card">
+                <h3>Total</h3>
+                <span id="contactTotalCount">0</span>
+            </div>
+
+        </div>
+
+        <div class="card">
+
+            <div class="card-header">
+                <input
+                    type="text"
+                    id="contactMessageSearch"
+                    placeholder="Search by name, email, or order reference...">
+            </div>
+
+            <div class="table-wrapper">
+
+                <table class="admin-table">
+
+                    <thead>
+
+                    <tr>
+                        <th></th>
+                        <th>Received</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Order Ref</th>
+                        <th>Message</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+
+                    </thead>
+
+                    <tbody id="contactMessageTableBody">
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+    </main>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+
+<script src="../js/supabase.js"></script>
+
+<script src="../js/admin-shell.js"></script>
+<script src="../js/auth.js"></script>
+
+<script src="../js/admin-contact-messages.js"></script>
+
+</body>
+
+</html>

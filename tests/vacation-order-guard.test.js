@@ -33,7 +33,7 @@ function read(relPath) {
 /** Minimal Supabase mock: only `vacation_periods` is ever expected to
  *  be queried by the guard itself. Any other table access is recorded
  *  so a test can assert the guard never touches ballot/order tables. */
-function makeSupabaseClient(vacationRow) {
+function makeSupabaseClient(vacationRow, liveMenuItems) {
     const callLog = [];
     const rpcCalls = [];
     return {
@@ -45,6 +45,18 @@ function makeSupabaseClient(vacationRow) {
                 return {
                     select() {
                         return { maybeSingle: () => Promise.resolve({ data: vacationRow, error: null }) };
+                    }
+                };
+            }
+            // refreshAndValidateCart()'s live-menu re-check, now also
+            // run by openCheckoutModal/submitOrder. Defaults to
+            // "whatever the test's cart already matches" so these
+            // vacation-guard-focused tests aren't incidentally affected
+            // by menu revalidation.
+            if (table === "menu_items") {
+                return {
+                    select() {
+                        return { eq: () => Promise.resolve({ data: liveMenuItems || [], error: null }) };
                     }
                 };
             }
@@ -82,12 +94,24 @@ function makeSupabaseClient(vacationRow) {
     };
 }
 
-// Matches js/cart.js's own `const CART_KEY = "jess_bakes_cart";` -- cart
-// is a top-level `let`, which node:vm does NOT expose as a mutable
-// context property, so the only reliable way to seed it for a test is
-// through localStorage, read once at module-load time, exactly like a
-// real page load.
-const CART_KEY = "jess_bakes_cart";
+// Matches js/cart.js's own `const CART_SESSION_KEY = "jess_bakes_cart_session";`
+// -- cart is a top-level `let`, which node:vm does NOT expose as a
+// mutable context property, so the only reliable way to seed it for a
+// test is through sessionStorage, read once at module-load time,
+// exactly like a real page load.
+const CART_SESSION_KEY = "jess_bakes_cart_session";
+
+/** A live-menu snapshot matching a given cart -- "nothing about the
+ *  menu changed" -- so these vacation-guard-focused tests aren't
+ *  incidentally affected by the now-also-present menu revalidation. */
+function deriveMatchingLiveMenu(cartItems) {
+    return (cartItems || []).map(item => ({
+        id: item.id,
+        product_type: item.type === "builder" ? "builder" : "standard",
+        available: true,
+        price: item.price
+    }));
+}
 
 function loadCartSandbox(vacationRow, cartItems) {
     const elements = new Map();
@@ -99,11 +123,11 @@ function loadCartSandbox(vacationRow, cartItems) {
     }
 
     const alertCalls = [];
-    const store = new Map();
-    if (cartItems !== undefined) {
-        store.set(CART_KEY, JSON.stringify(cartItems));
-    }
-    const supabaseClient = makeSupabaseClient(vacationRow);
+    const sessionStore = new Map();
+    const localStore = new Map();
+    const resolvedCartItems = cartItems !== undefined ? cartItems : [];
+    sessionStore.set(CART_SESSION_KEY, JSON.stringify({ items: resolvedCartItems, lastActivity: Date.now() }));
+    const supabaseClient = makeSupabaseClient(vacationRow, deriveMatchingLiveMenu(resolvedCartItems));
 
     const fakeDocument = {
         addEventListener: () => {},
@@ -115,15 +139,23 @@ function loadCartSandbox(vacationRow, cartItems) {
 
     const sandbox = {
         document: fakeDocument,
-        window: {},
+        window: { addEventListener: () => {} },
         console,
         supabaseClient,
         alert: (msg) => alertCalls.push(msg),
         confirm: () => true,
         crypto: { randomUUID: () => "test-uuid" },
+        setInterval: () => 1,
+        clearInterval: () => {},
         localStorage: {
-            getItem: (k) => (store.has(k) ? store.get(k) : null),
-            setItem: (k, v) => store.set(k, v)
+            getItem: (k) => (localStore.has(k) ? localStore.get(k) : null),
+            setItem: (k, v) => localStore.set(k, v),
+            removeItem: (k) => localStore.delete(k)
+        },
+        sessionStorage: {
+            getItem: (k) => (sessionStore.has(k) ? sessionStore.get(k) : null),
+            setItem: (k, v) => sessionStore.set(k, v),
+            removeItem: (k) => sessionStore.delete(k)
         }
     };
     vm.createContext(sandbox);
