@@ -1410,6 +1410,17 @@ h3 {
     min-height:120px;
 }
 
+.checkout-email-notice{
+    margin:0;
+    padding:14px 16px;
+    border-radius:12px;
+    background:#faf7f4;
+    border:1px solid #e6d8cc;
+    color:#5b4334;
+    font-size:0.85rem;
+    line-height:1.55;
+}
+
 .checkout-success{
     text-align:center;
     padding:30px 0;

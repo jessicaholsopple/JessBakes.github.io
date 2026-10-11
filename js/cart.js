@@ -827,6 +827,10 @@ function ensureCheckoutModal() {
 
                   </div>
 
+                <p class="checkout-email-notice">
+                    Order updates are sent by email. After submitting your order, you'll receive an email confirming that your order request was received. Once your order is approved, you'll receive a second "Order Confirmed" email containing your payment options, order total, pickup date and time, and pickup-location information. Please make sure your email address is correct and check your spam or junk folder if you don't see either message.
+                </p>
+
                 <button
                     type="submit"
                     class="primary-btn">

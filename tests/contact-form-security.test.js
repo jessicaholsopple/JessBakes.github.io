@@ -119,14 +119,14 @@ test("10. contact.html has a form with required name/email/message fields, an op
     assert.match(html, /class="form-honeypot"/);
 });
 
-test("11. contact.html loads js/contact-form.js and links to the real, repeated site-wide Facebook URL (not the inconsistent one-off)", () => {
+test("11. contact.html loads js/contact-form.js and links to the official Facebook URL", () => {
     const html = read("contact.html");
     assert.match(html, /<script src="js\/contact-form\.js"><\/script>/);
 
     const facebookLinks = [...html.matchAll(/href="(https:\/\/www\.facebook\.com\/[^"]+)"/g)].map(m => m[1]);
     assert.ok(facebookLinks.length > 0, "expected at least one Facebook link on the Contact page");
     facebookLinks.forEach(url => {
-        assert.equal(url, "https://www.facebook.com/share/1UYBMv8Kds/?mibextid=wwXIfr", `every Facebook link on contact.html must be the verified, site-wide URL, got: ${url}`);
+        assert.equal(url, "https://www.facebook.com/jessbakessourdough", `every Facebook link on contact.html must be the official URL, got: ${url}`);
     });
 });
 
