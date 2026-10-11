@@ -162,6 +162,14 @@ test("validation: sanitizeName strips control characters and caps length", async
     assert.equal(v.sanitizeName("x".repeat(200)).length, 100);
 });
 
+test("validation: sanitizeMessage strips control characters but keeps newlines, and caps length (used by the contact form)", async () => {
+    const v = await import(SHARED + "validation.mjs");
+    assert.equal(v.sanitizeMessage("Line one\x00\x1FLine two"), "Line oneLine two");
+    assert.equal(v.sanitizeMessage("  Hi there  "), "Hi there");
+    assert.equal(v.sanitizeMessage("Line one\nLine two\r\nLine three"), "Line one\nLine two\r\nLine three");
+    assert.equal(v.sanitizeMessage("x".repeat(5000)).length, 4000);
+});
+
 test("validation: full signup validation rejects honeypot, missing consent, and bad email in that priority order", async () => {
     const v = await import(SHARED + "validation.mjs");
     assert.deepEqual(v.validateSignup({ email: "a@b.com", honeypot: "x", consentChecked: true }), { ok: false, reason: "honeypot" });

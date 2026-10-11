@@ -79,10 +79,89 @@
       <article class="contact-card">
         <h2>Contact</h2>
         <div class="contact-list">
-          <p><strong>Facebook:</strong><br><a class="facebook-link" href="https://www.facebook.com/jessbakessourdough" target="_blank" rel="noopener noreferrer">Contact me on Facebook</a></p>
+          <p><strong>Facebook:</strong><br><a class="facebook-link" href="https://www.facebook.com/share/1UYBMv8Kds/?mibextid=wwXIfr" target="_blank" rel="noopener noreferrer">Contact me on Facebook</a></p>
         </div>
       </article>
     </div>
+  </section>
+
+  <div class="divider">✦</div>
+
+  <section class="section">
+    <section class="contact-form-card">
+
+      <p class="eyebrow">Send a Message</p>
+
+      <h2>Get in touch</h2>
+
+      <p>
+        Questions about an order, a custom request, or anything else — send a
+        message and I'll get back to you by email. You can also reach me on
+        <a class="facebook-link" href="https://www.facebook.com/share/1UYBMv8Kds/?mibextid=wwXIfr" target="_blank" rel="noopener noreferrer">Facebook</a>.
+      </p>
+
+      <form id="contactForm">
+
+        <div id="contactMessage" class="contact-form-message" style="display:none;"></div>
+
+        <div class="contact-form-grid">
+
+          <div class="form-group">
+            <label for="contactName">Name</label>
+            <input
+              type="text"
+              id="contactName"
+              autocomplete="name"
+              required>
+          </div>
+
+          <div class="form-group">
+            <label for="contactEmail">Email</label>
+            <input
+              type="email"
+              id="contactEmail"
+              autocomplete="email"
+              required>
+          </div>
+
+        </div>
+
+        <div class="form-group">
+          <label for="contactOrderReference">Order reference <span class="optional-label">(optional)</span></label>
+          <input
+            type="text"
+            id="contactOrderReference"
+            placeholder="e.g. order confirmation number, if this is about an existing order">
+        </div>
+
+        <div class="form-group">
+          <label for="contactMessageText">Message</label>
+          <textarea
+            id="contactMessageText"
+            rows="6"
+            required></textarea>
+        </div>
+
+        <!-- Honeypot: hidden from real visitors via CSS, never labeled
+             for assistive tech, and not part of the visible tab order.
+             A bot that fills every field trips this; a human never
+             sees it. -->
+        <div class="form-honeypot" aria-hidden="true">
+          <input
+            type="text"
+            id="contactWebsite"
+            name="website"
+            tabindex="-1"
+            autocomplete="off">
+        </div>
+
+        <button type="submit" class="primary-btn contact-form-submit">
+          Send Message
+        </button>
+
+      </form>
+
+    </section>
   </section>
 </main>
 
@@ -116,5 +195,6 @@
 <script src="js/supabase.js"></script>
 <script src="js/theme-apply.js"></script>
 <script src="js/script.js"></script>
+<script src="js/contact-form.js"></script>
 </body>
 </html>

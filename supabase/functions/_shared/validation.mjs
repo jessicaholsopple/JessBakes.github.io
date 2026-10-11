@@ -10,6 +10,7 @@
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_LENGTH = 254;
 const MAX_NAME_LENGTH = 100;
+const MAX_MESSAGE_LENGTH = 4000;
 
 export function normalizeEmail(email) {
     return String(email || "").trim().toLowerCase();
@@ -41,6 +42,22 @@ export function sanitizeName(name) {
         .join("");
 
     return stripped.trim().slice(0, MAX_NAME_LENGTH);
+}
+
+/** Same ASCII control-character stripping as sanitizeName(), but
+ *  keeps \n (10) and \r (13) so a multi-line message (e.g. the
+ *  contact form) doesn't get collapsed to one line. Trims and
+ *  length-caps at MAX_MESSAGE_LENGTH. */
+export function sanitizeMessage(message) {
+    const stripped = String(message || "")
+        .split("")
+        .filter(ch => {
+            const code = ch.charCodeAt(0);
+            return (code >= 32 && code !== 127) || code === 10 || code === 13;
+        })
+        .join("");
+
+    return stripped.trim().slice(0, MAX_MESSAGE_LENGTH);
 }
 
 /**

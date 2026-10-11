@@ -1,0 +1,32 @@
+name: Deploy Contact Form Edge Function
+
+# Manual trigger only, deliberately -- same reasoning as
+# deploy-email-functions.yml / deploy-vacation-functions.yml.
+#
+# Uses the SAME repository secret as the other deploy workflows
+# (SUPABASE_ACCESS_TOKEN) -- no new GitHub secret is needed.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        run: supabase link --project-ref fbfvqiuhwqfhhxufgmla
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      # JWT-verified: the anon key satisfies it. Real protection
+      # against abuse is the honeypot + rate limit + validation inside
+      # the function itself -- see _shared/validation.mjs.
+      - name: Deploy contact-submit
+        run: supabase functions deploy contact-submit
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

@@ -81,7 +81,8 @@
                 { href: "reviews.html", label: "Reviews" },
                 { href: "suggestions.html", label: "Suggestions" },
                 { href: "subscribers.html", label: "Subscribers" },
-                { href: "gallery.html", label: "Gallery" }
+                { href: "gallery.html", label: "Gallery" },
+                { href: "contact-messages.html", label: "Contact Messages" }
             ]
         },
         {
@@ -285,6 +286,37 @@
         });
     }
 
+    // Best-effort, additive-only unread-count badge next to the
+    // "Contact Messages" nav link. Deliberately never touches
+    // buildNavHtml/renderNavInto (which stay pure and fully covered by
+    // tests/admin-shell.test.js) -- this runs as a separate step
+    // afterwards and fails completely silently on any error (not yet
+    // authenticated, RLS denial, offline, missing table, etc.), so a
+    // badge that can't be computed simply doesn't appear rather than
+    // ever breaking navigation itself.
+    function loadContactMessageBadge(navEl) {
+        if (typeof supabaseClient === "undefined") return;
+
+        supabaseClient
+            .from("contact_messages")
+            .select("id", { count: "exact", head: true })
+            .eq("is_read", false)
+            .then(({ count, error }) => {
+                if (error || !count) return;
+
+                const link = navEl.querySelector('a[href="contact-messages.html"]');
+                if (!link) return;
+
+                const badge = document.createElement("span");
+                badge.className = "nav-badge";
+                badge.textContent = String(count);
+                link.appendChild(badge);
+            })
+            .catch(() => {
+                // Never fatal -- see comment above.
+            });
+    }
+
     function init() {
         injectPwaHeadTags();
         registerServiceWorker();
@@ -293,6 +325,7 @@
         if (!navEl) return; // e.g. the login gate, which has no sidebar
 
         renderNavInto(navEl);
+        loadContactMessageBadge(navEl);
 
         const shellEl = document.querySelector(".admin-shell");
         setupMobileToggle(shellEl);
