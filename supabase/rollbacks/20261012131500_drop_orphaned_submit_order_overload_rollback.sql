@@ -1,0 +1,29 @@
+-- Rollback for 20261012131500_drop_orphaned_submit_order_overload.sql
+--
+-- Deliberately NOT a full "recreate the old function" rollback.
+--
+-- The dropped overload (p_customer_name, p_customer_email,
+-- p_customer_phone, p_preferred_contact, p_order_type, p_event_date,
+-- p_notes, p_subtotal, p_items) was dead code in practice -- js/cart.js
+-- has never sent p_preferred_contact in its submit_order call, so
+-- PostgREST could only ever resolve that call shape to the OTHER,
+-- fully-validated overload. The dropped version also predates
+-- 20260831090000_order_server_side_validation.sql's availability/price
+-- checks and this session's finished-stock checks entirely, so
+-- restoring it would reopen a real, currently-exploitable validation
+-- bypass (anyone who explicitly supplies p_preferred_contact as a
+-- named RPC argument could still reach it) for no practical benefit.
+--
+-- If this ever genuinely needs to be restored (it should not), the
+-- exact prior source is recoverable from git history --
+-- `git log -p -- supabase/migrations/20260828120000_fix_submit_order_null_pickup_date.sql`
+-- (the last migration to define that exact 9-argument shape) -- rather
+-- than hand-reconstructed here, to avoid transcribing a
+-- security-sensitive function body incorrectly.
+--
+-- This file exists only so every migration in this feature has a
+-- paired rollback file per the project's convention; running it is a
+-- documented no-op.
+begin;
+-- Intentionally no statements: see comment above.
+commit;

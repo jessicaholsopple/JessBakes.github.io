@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+    <title>Menu Stock | Jess Bakes Sourdough</title>
+
+    <link rel="stylesheet"
+          href="../css/admin.css">
+
+  <link rel="icon" type="image/png" href="../images/jess-bakes-logo.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/images/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Jess Bakes">
+  <meta name="theme-color" content="#7b2b22">
+</head>
+
+<body>
+
+<div class="admin-shell">
+
+    <!-- Sidebar -->
+
+    <aside class="sidebar">
+
+        <div class="sidebar-brand">
+
+            <h2>Jess Bakes</h2>
+
+            <span>SOURDOUGH</span>
+
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Admin navigation"></nav>
+
+    </aside>
+
+    <main class="admin-content">
+
+        <header class="page-header">
+
+            <div>
+
+                <h1>Menu Stock</h1>
+
+                <p>
+                    Finished, already-baked units sitting in the freezer right now --
+                    completely separate from the ingredient
+                    <a href="inventory.html">Inventory</a> page, raw-material counts, and
+                    production/baking batches. Most items are Made to Order (unlimited)
+                    until you switch one to Limited here.
+                </p>
+
+            </div>
+
+        </header>
+
+        <div class="overview-grid">
+
+            <div class="overview-card">
+                <h3>Limited Items</h3>
+                <span id="stockLimitedCount">0</span>
+            </div>
+
+            <div class="overview-card">
+                <h3>Sold Out Now</h3>
+                <span id="stockSoldOutCount">0</span>
+            </div>
+
+            <div class="overview-card">
+                <h3>Units On Hand</h3>
+                <span id="stockUnitsOnHand">0</span>
+            </div>
+
+        </div>
+
+        <div class="card">
+
+            <div class="card-header">
+
+                <input
+                    type="text"
+                    id="stockSearch"
+                    placeholder="Search by item name...">
+
+                <select id="stockCategoryFilter">
+                    <option value="">All Categories</option>
+                    <option value="bread">Sourdough Bread</option>
+                    <option value="cookie">Sourdough Cookies</option>
+                    <option value="dessert">Desserts</option>
+                    <option value="seasonal">Seasonal Specials</option>
+                </select>
+
+                <select id="stockModeFilter">
+                    <option value="">All Stock Modes</option>
+                    <option value="made_to_order">Made to Order</option>
+                    <option value="limited">Limited</option>
+                </select>
+
+                <select id="stockAvailabilityFilter">
+                    <option value="">All Availability</option>
+                    <option value="available">Available</option>
+                    <option value="sold_out">Sold Out</option>
+                    <option value="hidden">Hidden (unavailable)</option>
+                </select>
+
+            </div>
+
+            <div class="table-wrapper">
+
+                <table class="admin-table">
+
+                    <thead>
+
+                    <tr>
+                        <th>Item</th>
+                        <th>Category</th>
+                        <th>Stock Mode</th>
+                        <th>On Hand</th>
+                        <th>Reserved</th>
+                        <th>Available</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+
+                    </thead>
+
+                    <tbody id="stockTableBody">
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+        <div class="card">
+
+            <div class="card-header">
+                <h2>Recent Stock Activity</h2>
+            </div>
+
+            <div class="table-wrapper">
+
+                <table class="admin-table">
+
+                    <thead>
+
+                    <tr>
+                        <th>When</th>
+                        <th>Item</th>
+                        <th>Change</th>
+                        <th>Previous</th>
+                        <th>New</th>
+                        <th>Reason</th>
+                        <th>Source</th>
+                    </tr>
+
+                    </thead>
+
+                    <tbody id="stockMovementsTableBody">
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+    </main>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+
+<script src="../js/supabase.js"></script>
+
+<script src="../js/admin-shell.js"></script>
+<script src="../js/auth.js"></script>
+
+<script src="../js/admin-menu-stock.js"></script>
+
+</body>
+
+</html>

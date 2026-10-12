@@ -58,7 +58,8 @@
         {
             label: "Catalog",
             items: [
-                { href: "menu.html", label: "Menu" }
+                { href: "menu.html", label: "Menu" },
+                { href: "menu-stock.html", label: "Menu Stock" }
             ]
         },
         {

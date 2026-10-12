@@ -49,12 +49,46 @@ async function loadMenu() {
 
     menuItems = data || [];
 
+    // Finished-product freezer stock (separate table, new feature --
+    // see supabase/migrations/20261012120000_finished_stock_schema.sql).
+    // Best-effort: a failure here must never block the menu from
+    // rendering -- every item just falls back to its default
+    // made-to-order behavior (no stock_mode set at all) if this fails.
+    await attachFinishedStock(menuItems);
+
+    menuItems = menuItems.filter(item => !isHiddenSoldOut(item));
+
     renderMenu();
 
     if (typeof initializeCart === "function") {
         initializeCart(menuItems, renderMenu);
     }
 
+}
+
+async function attachFinishedStock(items) {
+    try {
+        const { data, error } = await supabaseClient
+            .from("menu_item_stock")
+            .select("menu_item_id, stock_mode, sold_out_behavior, available_count");
+
+        if (error || !data || typeof MixAndMatch === "undefined") return;
+
+        MixAndMatch.mergeStockOntoMenuItems(items, data);
+    } catch (err) {
+        console.error(err);
+        // Fail open -- see comment at the call site.
+    }
+}
+
+/** A sold-out 'limited' item whose admin chose "hide" (rather than
+ *  "show as Sold Out") disappears from the public menu entirely --
+ *  menu_items.available itself is untouched, so it reappears
+ *  automatically the moment stock is replenished. */
+function isHiddenSoldOut(item) {
+    return item.stock_mode === "limited" &&
+        Number(item.available_count) <= 0 &&
+        item.sold_out_behavior === "hide";
 }
 
 function renderMenu() {
@@ -117,6 +151,21 @@ function renderMenuCard(item) {
             ? getCartQuantity(item.id)
             : 0;
 
+    // Finished-product freezer stock badge/cap -- made_to_order items
+    // (stock_mode unset, the default for every item until an admin
+    // explicitly switches it) are completely unaffected: `limited` is
+    // false, no badge, no cap, exactly today's behavior.
+    const limited = item.stock_mode === "limited";
+    const remaining = limited ? Math.max(Number(item.available_count) || 0, 0) : null;
+    const soldOut = limited && remaining <= 0;
+    const atStockCap = limited && quantity >= remaining;
+
+    const stockBadge = soldOut
+        ? `<span class="stock-badge stock-badge-soldout">Sold out</span>`
+        : limited
+            ? `<span class="stock-badge">Only ${remaining} left</span>`
+            : "";
+
     return `
 
 <article class="menu-item ${item.category === "cookie" ? "full" : ""}">
@@ -147,10 +196,16 @@ function renderMenuCard(item) {
 
     </p>
 
+    ${stockBadge}
+
     <div class="menu-order-actions">
 
         ${
-            quantity > 0
+            soldOut && quantity === 0
+
+                ? `<button type="button" class="add-cart-btn" disabled>Sold Out</button>`
+
+                : quantity > 0
 
                 ? `
 
@@ -166,7 +221,8 @@ function renderMenuCard(item) {
 
                     <button
                         type="button"
-                        onclick="changeCartQuantity('${item.id}',1)">
+                        onclick="changeCartQuantity('${item.id}',1)"
+                        ${atStockCap ? "disabled" : ""}>
 
                         +
 

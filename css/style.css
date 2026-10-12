@@ -1217,6 +1217,22 @@ h3 {
     white-space: pre-line;
 }
 
+.stock-badge{
+    display:inline-block;
+    margin-top:10px;
+    padding:3px 10px;
+    border-radius:999px;
+    background:#a8631c;
+    color:#fff;
+    font-size:.72rem;
+    font-weight:700;
+    letter-spacing:.03em;
+}
+
+.stock-badge-soldout{
+    background:#6e6258;
+}
+
 
 /* ==========================================
    MENU ORDERING
@@ -1238,6 +1254,16 @@ h3 {
 
 .menu-order-actions button:hover{
     transform:translateY(-1px);
+}
+
+.menu-order-actions button:disabled{
+    opacity:.5;
+    cursor:not-allowed;
+    transform:none;
+}
+
+.menu-order-actions button:disabled:hover{
+    transform:none;
 }
 
 .add-cart-btn{
@@ -1817,6 +1843,25 @@ COMMUNITY FAVORITES
     min-width:24px;
     text-align:center;
     font-weight:bold;
+}
+
+.builder-counter button:disabled{
+    opacity:.5;
+    cursor:not-allowed;
+}
+
+.builder-stock-note{
+    display:block;
+    margin-top:4px;
+    color:#a8631c;
+    font-size:.75rem;
+    font-weight:600;
+}
+
+.builder-empty-notice{
+    padding:16px;
+    text-align:center;
+    color:#6e554a;
 }
 
 /* ==========================================

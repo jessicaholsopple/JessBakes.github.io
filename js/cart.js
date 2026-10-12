@@ -174,10 +174,52 @@ function checkCartExpiry() {
    what this function does or misses.
 ========================================== */
 
+/** Total cart-wide demand for each menu item, combining standalone
+ *  lines and every Mix & Match box's selections of it -- see
+ *  getCommittedQuantityForMenuItem's own comment on why the two
+ *  purchase paths must be summed together, never checked separately. */
+function computeCartWideDemand(cartLines) {
+    const demand = {};
+    (cartLines || []).forEach(item => {
+        if (item.type === "builder") {
+            (item.selections || []).forEach(selection => {
+                const id = String(selection.id);
+                demand[id] = (demand[id] || 0) + Number(selection.quantity || 0) * Number(item.quantity || 0);
+            });
+        } else {
+            const id = String(item.id);
+            demand[id] = (demand[id] || 0) + Number(item.quantity || 0);
+        }
+    });
+    return demand;
+}
+
 function validateCartAgainstMenu(menuItems) {
     const liveItems = Array.isArray(menuItems) ? menuItems : [];
     const removedNames = [];
     const changedNames = [];
+
+    // Which limited-stock items does the WHOLE cart currently ask for
+    // more of than actually remains? Computed once, up front, across
+    // every line (standalone + every builder box) together, since a
+    // flavor sold both ways draws from one shared stock record and
+    // can't be judged a line at a time. Any line touching an
+    // over-committed item is removed below, with a clear explanation
+    // -- simpler and safer than guessing how to split limited stock
+    // fairly between competing lines; the customer can always re-add
+    // up to the new live amount. This is a client-side courtesy only:
+    // submit_order()'s own trigger-enforced reservation is what
+    // actually guarantees no overselling (see
+    // supabase/migrations/20261012121500_finished_stock_reconcile_triggers.sql).
+    const demand = computeCartWideDemand(cart);
+    const overCommittedIds = new Set();
+    Object.keys(demand).forEach(id => {
+        const liveItem = liveItems.find(m => String(m.id) === id);
+        const remaining = (typeof MixAndMatch !== "undefined") ? MixAndMatch.getRemainingStock(liveItem) : null;
+        if (remaining !== null && demand[id] > remaining) {
+            overCommittedIds.add(id);
+        }
+    });
 
     cart = cart.filter(item => {
         if (item.type === "builder") {
@@ -195,8 +237,9 @@ function validateCartAgainstMenu(menuItems) {
                 : [];
             const eligibleIds = new Set(eligible.map(c => String(c.id)));
             const stillEligible = (item.selections || []).every(s => eligibleIds.has(String(s.id)));
+            const touchesOverCommitted = (item.selections || []).some(s => overCommittedIds.has(String(s.id)));
 
-            if (!stillEligible) {
+            if (!stillEligible || touchesOverCommitted) {
                 removedNames.push(item.name);
                 return false;
             }
@@ -214,6 +257,11 @@ function validateCartAgainstMenu(menuItems) {
         );
 
         if (!menuItem) {
+            removedNames.push(item.name);
+            return false;
+        }
+
+        if (overCommittedIds.has(String(item.id))) {
             removedNames.push(item.name);
             return false;
         }
@@ -265,13 +313,22 @@ async function refreshAndValidateCart() {
     menuRevalidationInFlight = true;
 
     try {
-        const { data, error } = await supabaseClient
-            .from("menu_items")
-            .select("*")
-            .eq("available", true);
+        const [menuResult, stockResult] = await Promise.all([
+            supabaseClient.from("menu_items").select("*").eq("available", true),
+            supabaseClient.from("menu_item_stock").select("menu_item_id, stock_mode, sold_out_behavior, available_count")
+        ]);
+
+        const { data, error } = menuResult;
 
         if (error || !data) {
             return noChange;
+        }
+
+        // Best-effort: a stock-fetch failure never blocks the
+        // availability/price revalidation that already protects
+        // checkout -- every item just falls back to made-to-order.
+        if (!stockResult.error && stockResult.data && typeof MixAndMatch !== "undefined") {
+            MixAndMatch.mergeStockOntoMenuItems(data, stockResult.data);
         }
 
         cartMenuItems = data;
@@ -290,10 +347,60 @@ function getCartQuantity(itemId) {
     return existing ? existing.quantity : 0;
 }
 
+/** How many units of this menu item the cart ALREADY counts on right
+ *  now, combining standalone lines and every Mix & Match box's
+ *  selections of it -- the two purchase paths share one physical
+ *  stock record (see MixAndMatch.hasAvailableStock's own comment), so
+ *  a flavor sold both ways must be capped against their combined
+ *  total, never either path in isolation. Per-flavor consumption for
+ *  a builder line is selection.quantity * line.quantity, matching the
+ *  exact formula the server's reconcile_order_stock() uses. */
+function getCommittedQuantityForMenuItem(itemId) {
+    let total = 0;
+    cart.forEach(item => {
+        if (item.type === "builder") {
+            (item.selections || []).forEach(selection => {
+                if (String(selection.id) === String(itemId)) {
+                    total += Number(selection.quantity || 0) * Number(item.quantity || 0);
+                }
+            });
+        } else if (String(item.id) === String(itemId)) {
+            total += Number(item.quantity || 0);
+        }
+    });
+    return total;
+}
+
+/** null = unlimited (made_to_order or untracked); a number = how many
+ *  MORE units of this item can still be added to the cart right now,
+ *  i.e. the live available_count minus whatever this cart already
+ *  committed to it across every line. This never reserves anything by
+ *  itself -- it's purely a client-side cap computed from the live
+ *  menu snapshot, exactly like price/availability elsewhere in this
+ *  file; the server is still the only real source of truth. */
+function getRemainingStockForMenuItem(itemId) {
+    const menuItem = cartMenuItems.find(item => item.id === itemId);
+    const remaining = (typeof MixAndMatch !== "undefined")
+        ? MixAndMatch.getRemainingStock(menuItem)
+        : null;
+
+    if (remaining === null) return null;
+
+    return Math.max(remaining - getCommittedQuantityForMenuItem(itemId), 0);
+}
+
 function changeCartQuantity(itemId, change) {
     const menuItem = cartMenuItems.find(item => item.id === itemId);
 
     if (!menuItem) return;
+
+    if (change > 0) {
+        const remainingToAdd = getRemainingStockForMenuItem(itemId);
+        if (remainingToAdd !== null && remainingToAdd <= 0) {
+            alert(`Sorry, ${menuItem.name} is sold out.`);
+            return;
+        }
+    }
 
     const existing = cart.find(item => item.id === itemId);
 
@@ -402,15 +509,23 @@ Pick exactly <strong>${builderSize}</strong> items.
 
 </p>
 
+${options.length === 0 ? `<p class="builder-empty-notice">No flavors are available for Mix &amp; Match right now -- please check back soon.</p>` : `
+
 <div class="builder-options">
 
-${options.map(option=>`
+${options.map(option=>{
+    const remainingToAdd = getRemainingStockForMenuItem(option.id);
+    const atCap = remainingToAdd !== null && selections[option.id] >= remainingToAdd;
+    const liveRemaining = (typeof MixAndMatch !== "undefined") ? MixAndMatch.getRemainingStock(option) : null;
+    return `
 
 <div class="builder-row">
 
 <div>
 
 <strong>${option.name}</strong>
+
+${liveRemaining !== null ? `<span class="builder-stock-note">Only ${liveRemaining} left</span>` : ""}
 
 </div>
 
@@ -432,7 +547,8 @@ ${selections[option.id]}
 
 <button
 type="button"
-onclick="updateBuilderSelection('${option.id}',1)">
+onclick="updateBuilderSelection('${option.id}',1)"
+${atCap ? "disabled" : ""}>
 
 +
 
@@ -442,9 +558,11 @@ onclick="updateBuilderSelection('${option.id}',1)">
 
 </div>
 
-`).join("")}
+`;}).join("")}
 
 </div>
+
+`}
 
 <hr>
 
@@ -486,6 +604,13 @@ Add Box
 
         if (change > 0 && totalSelected() >= builderSize)
     return;
+
+        if (change > 0) {
+            const remainingToAdd = getRemainingStockForMenuItem(id);
+            if (remainingToAdd !== null && selections[id] >= remainingToAdd) {
+                return;
+            }
+        }
 
         selections[id]+=change;
 
@@ -1368,6 +1493,38 @@ async function submitOrder(event) {
 
     if (error) {
         console.error(error);
+
+        // Lost a last-moment race for limited freezer stock -- another
+        // customer's order reserved it first (reconcile_order_stock()
+        // raises this exact, friendly, recognizable message; see
+        // supabase/migrations/20261012121500_finished_stock_reconcile_triggers.sql).
+        // No order, no order_items, no stock movement was created for
+        // this attempt. Refresh the cart to the new reality (this will
+        // remove or already reflect the now-sold-out item) instead of
+        // just showing a raw error -- the customer sees an updated
+        // summary, not a dead end.
+        if (/no longer has enough stock remaining/i.test(error.message || "")) {
+            const revalidation = await refreshAndValidateCart();
+            renderCheckoutSummary();
+
+            if (!cart.length) {
+                closeCheckoutModal();
+            }
+
+            // validateCartAgainstMenu() already alerted the customer by
+            // name if it found and explained the change itself; only
+            // fall back to the server's own (still friendly) message
+            // when the client-side pass didn't already cover it.
+            if (!revalidation.removedNames.length && !revalidation.changedNames.length) {
+                alert(error.message);
+            }
+
+            submitButton.disabled = false;
+            submitButton.textContent = "Submit Order";
+
+            return;
+        }
+
         alert(error.message);
 
         submitButton.disabled = false;

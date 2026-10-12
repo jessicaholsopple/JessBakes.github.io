@@ -4552,6 +4552,46 @@ html {
     cursor: not-allowed;
 }
 
+/* ==========================================
+   MENU STOCK (admin/menu-stock.html)
+========================================== */
+
+.stock-modal-hint {
+    margin: 6px 0 20px;
+    color: var(--muted, #6e554a);
+    font-size: .85rem;
+}
+
+.stock-adjust-group {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+}
+
+.stock-adjust-group h3 {
+    margin: 0 0 10px;
+    font-size: 1rem;
+}
+
+.stock-adjust-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.stock-adjust-row select {
+    flex: 2;
+}
+
+.stock-adjust-row input {
+    flex: 1;
+}
+
+#stockAdjustReason {
+    width: 100%;
+    margin-bottom: 12px;
+}
+
 /* ===========================
    THEMES admin: inline action feedback -- identical shape to
    .vacation-action-row/.vacation-action-feedback, renamed for this

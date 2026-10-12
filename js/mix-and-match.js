@@ -36,13 +36,47 @@
     }
 
     /**
+     * True when a menu item (standard product) currently has finished-
+     * product stock to sell -- made_to_order items (the default: no
+     * stock_mode at all, or stock_mode explicitly 'made_to_order') are
+     * always true/unlimited; a 'limited' item is true only while its
+     * live available_count is above zero. menuItem.stock_mode/
+     * available_count are expected to be merged onto the plain
+     * menu_items row by the caller (see js/menu.js/js/cart.js --
+     * fetched from the separate, public-readable menu_item_stock
+     * table) -- this function itself has no knowledge of how they got
+     * there, keeping it pure and Node-testable like the rest of this
+     * file. A menu item with no stock fields at all (every item before
+     * this feature touches it) is treated as made_to_order, matching
+     * "no row = made to order" everywhere else in this feature.
+     */
+    function hasAvailableStock(menuItem) {
+        if (!menuItem) return false;
+        if (menuItem.stock_mode !== "limited") return true;
+        return toNumber(menuItem.available_count, 0) > 0;
+    }
+
+    /** Remaining sellable units for a menu item: null means unlimited
+     *  (made_to_order), a number is the live remaining count for a
+     *  'limited' item (floored at 0, never negative). */
+    function getRemainingStock(menuItem) {
+        if (!menuItem || menuItem.stock_mode !== "limited") return null;
+        return Math.max(toNumber(menuItem.available_count, 0), 0);
+    }
+
+    /**
      * The one canonical Mix & Match eligibility rule. A menu item is an
      * eligible flavor for a given builder (box) product when it is:
      *   - a standard, individually-orderable product -- never another
      *     builder/box product, and never a bread/dessert/seasonal item
      *     that happens to reuse the same builder_group text;
      *   - currently available;
-     *   - tagged into the SAME builder_group as the box itself.
+     *   - tagged into the SAME builder_group as the box itself;
+     *   - not sold out (see hasAvailableStock above) -- a flavor with
+     *     zero finished-product stock left must disappear from the Mix
+     *     & Match selector exactly like it disappears from its own
+     *     individual product card, since both paths draw from the same
+     *     physical freezer stock.
      * Matches on the stable builder_group field and product_type only --
      * never on the product's name, so a future flavor becomes eligible
      * automatically the moment it's created with the right fields, no
@@ -55,7 +89,8 @@
             menuItem.product_type === "standard" &&
             menuItem.available === true &&
             menuItem.builder_group &&
-            menuItem.builder_group === builderProduct.builder_group
+            menuItem.builder_group === builderProduct.builder_group &&
+            hasAvailableStock(menuItem)
         );
     }
 
@@ -145,12 +180,40 @@
         };
     }
 
+    /** Merges live menu_item_stock rows (the separate, public-readable
+     *  table -- see supabase/migrations/20261012120000_finished_stock_schema.sql)
+     *  onto their matching menu_items rows by id, attaching
+     *  stock_mode/available_count/sold_out_behavior directly onto each
+     *  item object so hasAvailableStock/getRemainingStock/isEligibleCookie
+     *  can read them with no separate lookup. An item with no matching
+     *  stock row is left untouched (stock_mode stays undefined/absent),
+     *  which is exactly what "no row = made to order" needs everywhere
+     *  else in this feature. Mutates and returns the same menuItems
+     *  array for convenient chaining; the single implementation shared
+     *  by js/menu.js and js/cart.js so the two pages can never merge
+     *  stock data differently. */
+    function mergeStockOntoMenuItems(menuItems, stockRows) {
+        const byId = new Map((stockRows || []).map(s => [String(s.menu_item_id), s]));
+        (menuItems || []).forEach(item => {
+            const stock = byId.get(String(item.id));
+            if (stock) {
+                item.stock_mode = stock.stock_mode;
+                item.available_count = stock.available_count;
+                item.sold_out_behavior = stock.sold_out_behavior;
+            }
+        });
+        return menuItems;
+    }
+
     return {
         isEligibleCookie,
         getEligibleCookies,
         getRequiredCount,
         getSelectedTotal,
         validateBoxSelection,
-        buildBuilderDetails
+        buildBuilderDetails,
+        hasAvailableStock,
+        getRemainingStock,
+        mergeStockOntoMenuItems
     };
 });

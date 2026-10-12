@@ -1079,6 +1079,48 @@ function promptManualExchangeRate(dateStr) {
    DELETE
 ========================================== */
 
+/** True when any line in this order (standalone or a Mix & Match
+ *  box's selections) references a menu item currently in 'limited'
+ *  stock mode -- purely informational for the delete confirmation
+ *  below; never used as any kind of gate. Fails safe (returns false,
+ *  no notice shown) on any query error -- the automatic server-side
+ *  restoration happens either way regardless of what this check finds. */
+async function orderInvolvesLimitedStock(orderId) {
+
+    try {
+        const { data: items, error: itemsError } = await supabaseClient
+            .from("order_items")
+            .select("menu_item_id, builder_details")
+            .eq("order_id", orderId);
+
+        if (itemsError || !items || !items.length) return false;
+
+        const involvedIds = new Set();
+        items.forEach(line => {
+            if (line.menu_item_id) involvedIds.add(line.menu_item_id);
+            (line.builder_details?.selections || []).forEach(sel => {
+                if (sel && sel.id) involvedIds.add(sel.id);
+            });
+        });
+
+        if (!involvedIds.size) return false;
+
+        const { data: stockRows, error: stockError } = await supabaseClient
+            .from("menu_item_stock")
+            .select("menu_item_id")
+            .eq("stock_mode", "limited")
+            .in("menu_item_id", [...involvedIds]);
+
+        if (stockError) return false;
+
+        return !!(stockRows && stockRows.length);
+    } catch (err) {
+        console.error(err);
+        return false;
+    }
+
+}
+
 async function deleteOrder(orderId, customerName, dateLabel, status) {
 
     // BUG (Delete didn't work): the confirm dialog never identified which
@@ -1145,6 +1187,25 @@ async function deleteOrder(orderId, customerName, dateLabel, status) {
         await loadOrderManager(); // its status may have just changed
         return;
 
+    }
+
+    // Finished-product freezer stock (separate feature -- see
+    // supabase/migrations/20261012121500_finished_stock_reconcile_triggers.sql):
+    // a BEFORE DELETE trigger on orders already, automatically, and
+    // atomically releases any reservation this order holds the moment
+    // it's deleted -- nothing below this point needs to do that itself.
+    // This second, more specific confirmation only fires once the admin
+    // has already committed via the first confirm() above (so a simple
+    // cancel still makes no Supabase calls at all), and gives them one
+    // more chance to back out of a delete that will hand stock back to
+    // other customers.
+    if (await orderInvolvesLimitedStock(orderId)) {
+        if (!confirm(
+            `${customerName}'s order includes limited-stock item(s). Deleting it will restore that stock for other customers to purchase.\n\nContinue with deletion?`
+        )) {
+            setDeleting(false);
+            return;
+        }
     }
 
     // .select("id") so a silently-blocked RLS delete (0 rows affected,
@@ -1917,24 +1978,6 @@ if (editingOrderId) {
 
     }
 
-   if (editingOrderId) {
-
-    const { error: deleteError } =
-        await supabaseClient
-            .from("order_items")
-            .delete()
-            .eq("order_id", editingOrderId);
-
-    if (deleteError) {
-
-        console.error(deleteError);
-        alert(deleteError.message);
-        return;
-
-    }
-
-}
-
     // BUG-02 fix: built by the shared, tested OrderEditor module. Any
     // unresolvable preserved lines are carried through exactly as loaded,
     // and every Mix & Match box (new or edited) is built fresh from its
@@ -1945,9 +1988,32 @@ if (editingOrderId) {
         ...OrderEditor.buildBuilderBoxOrderItems(order.id, manualBuilderBoxes)
     ];
 
-    const { error: itemError } = await supabaseClient
-        .from("order_items")
-        .insert(orderItems);
+    let itemError;
+
+    if (editingOrderId) {
+
+        // Finished-product freezer stock (separate feature -- see
+        // supabase/migrations/20261012130000_admin_replace_order_items_rpc.sql):
+        // delete-then-insert as two separate REST calls would let the
+        // stock-reconcile triggers fire non-atomically (the delete's
+        // release could commit even if the new insert then fails for
+        // insufficient stock, leaving the order with no items at all).
+        // This RPC wraps both in one transaction -- the SAME triggers
+        // fire exactly as they would outside it, but a stock shortfall
+        // on the new quantities now rolls the whole edit back, leaving
+        // the order's items completely unchanged.
+        ({ error: itemError } = await supabaseClient.rpc("admin_replace_order_items", {
+            p_order_id: order.id,
+            p_items: orderItems
+        }));
+
+    } else {
+
+        ({ error: itemError } = await supabaseClient
+            .from("order_items")
+            .insert(orderItems));
+
+    }
 
     if (itemError) {
 
