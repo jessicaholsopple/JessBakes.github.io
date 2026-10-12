@@ -956,6 +956,19 @@ function ensureCheckoutModal() {
                     Order updates are sent by email. After submitting your order, you'll receive an email confirming that your order request was received. Once your order is approved, you'll receive a second "Order Confirmed" email containing your payment options, order total, pickup date and time, and pickup-location information. Please make sure your email address is correct and check your spam or junk folder if you don't see either message.
                 </p>
 
+                <div class="form-group checkout-subscribe-group">
+                    <label class="checkout-subscribe-option" for="checkoutSubscribeMenuUpdates">
+                        <input
+                            type="checkbox"
+                            id="checkoutSubscribeMenuUpdates"
+                            name="checkoutSubscribeMenuUpdates">
+                        <span>Email me weekly menu updates and news about new items. I can unsubscribe at any time.</span>
+                    </label>
+                    <p class="checkout-subscribe-privacy-note">
+                        See the <a href="privacy.html" target="_blank" rel="noopener">Privacy Notice</a>.
+                    </p>
+                </div>
+
                 <button
                     type="submit"
                     class="primary-btn">
@@ -977,6 +990,13 @@ function ensureCheckoutModal() {
                 </p>
 
                 <p id="checkoutSuccessPickup"></p>
+
+                <p
+                    id="checkoutSubscriptionNotice"
+                    class="checkout-subscription-notice"
+                    style="display:none;">
+                    Your order was received, but the menu-update signup didn't go through. You can try again on the <a href="index.html#newsletterForm" target="_blank" rel="noopener">Stay Updated</a> form.
+                </p>
 
                 <button
                     class="primary-btn"
@@ -1207,6 +1227,20 @@ async function openCheckoutModal() {
     document.getElementById("checkoutForm").style.display = "grid";
     document.getElementById("checkoutSuccess").style.display = "none";
 
+    // Never preselected: unconditionally forced unchecked every time
+    // checkout opens, regardless of cookies, prior orders, browser
+    // storage, or any existing subscription status for this email --
+    // this is a per-session marketing opt-IN, never inferred consent.
+    const subscribeCheckbox = document.getElementById("checkoutSubscribeMenuUpdates");
+    if (subscribeCheckbox) {
+        subscribeCheckbox.checked = false;
+    }
+
+    const subscriptionNotice = document.getElementById("checkoutSubscriptionNotice");
+    if (subscriptionNotice) {
+        subscriptionNotice.style.display = "none";
+    }
+
     renderCheckoutSummary();
     await toggleCustomOrderDetails();
 }
@@ -1321,6 +1355,12 @@ async function submitOrder(event) {
     const customer_phone = document.getElementById("customerPhone").value.trim();
     const order_type = document.getElementById("orderType").value;
     const custom_details = document.getElementById("customOrderDetails").value.trim();
+
+    // Read BEFORE any later form.reset() call clears it. Purely an
+    // optional marketing opt-in -- never required, never checked
+    // against the live menu/pickup/stock guards above, and never
+    // allowed to block or delay order submission.
+    const wantsMenuUpdates = document.getElementById("checkoutSubscribeMenuUpdates")?.checked === true;
 
     if (!customer_name) {
         alert("Please enter your name.");
@@ -1535,6 +1575,42 @@ async function submitOrder(event) {
 
     lastPickupPreview = null;
     clearCart();
+
+    // Optional menu-update subscription -- attempted ONLY now that the
+    // order itself has been successfully created, and entirely separate
+    // from the transactional order-received/order-confirmed emails
+    // (those are enqueued server-side by a DB trigger on `orders`,
+    // completely independent of this call; see
+    // supabase/migrations/20260818120000_email_system_schema.sql).
+    // Always goes through the same canonical newsletter-subscribe Edge
+    // Function used by every other signup surface on the site -- never
+    // a direct table write -- so idempotency (one row per email, a
+    // welcome email only on a genuine 0->active transition), rate
+    // limiting, and consent recording stay exactly as enforced there.
+    // A failure here must never undo, duplicate, or hide the
+    // already-successful order.
+    let subscriptionFailed = false;
+    if (wantsMenuUpdates) {
+        try {
+            const { data: subData, error: subError } = await supabaseClient.functions.invoke("newsletter-subscribe", {
+                body: {
+                    email: customer_email,
+                    name: customer_name,
+                    preferences: { menuAnnouncements: true },
+                    source: "checkout"
+                }
+            });
+            subscriptionFailed = !!subError || !subData || subData.ok !== true;
+        } catch (subErr) {
+            console.error(subErr);
+            subscriptionFailed = true;
+        }
+    }
+
+    const subscriptionNotice = document.getElementById("checkoutSubscriptionNotice");
+    if (subscriptionNotice) {
+        subscriptionNotice.style.display = subscriptionFailed ? "block" : "none";
+    }
 
     // Confirms the saved order matches exactly what the customer just
     // reviewed and submitted -- reads back the authoritative

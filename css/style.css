@@ -1447,6 +1447,59 @@ h3 {
     line-height:1.55;
 }
 
+.checkout-subscribe-group{
+    margin-bottom:0;
+}
+
+.checkout-subscribe-option{
+    display:flex;
+    align-items:flex-start;
+    gap:10px;
+    font-size:0.9rem;
+    font-weight:400;
+    text-transform:none;
+    letter-spacing:normal;
+    color:#5b4334;
+    margin-bottom:0;
+    cursor:pointer;
+}
+
+.checkout-subscribe-option input[type="checkbox"]{
+    width:16px;
+    height:16px;
+    padding:0;
+    margin:3px 0 0 0;
+    border-radius:4px;
+    background:initial;
+    flex-shrink:0;
+}
+
+.checkout-subscribe-option input[type="checkbox"]:focus{
+    box-shadow:none;
+}
+
+.checkout-subscribe-privacy-note{
+    margin:6px 0 0 26px;
+    font-size:0.78rem;
+    color:var(--muted);
+}
+
+.checkout-subscribe-privacy-note a,
+.checkout-subscription-notice a{
+    color:var(--burgundy);
+}
+
+.checkout-subscription-notice{
+    margin:0 0 16px 0;
+    padding:12px 14px;
+    border-radius:12px;
+    background:#fdf3e7;
+    border:1px solid #efd9b8;
+    color:#5b4334;
+    font-size:0.85rem;
+    line-height:1.5;
+}
+
 .checkout-success{
     text-align:center;
     padding:30px 0;

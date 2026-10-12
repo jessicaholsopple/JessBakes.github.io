@@ -21,7 +21,7 @@ import { newsletterWelcomeKey } from "../_shared/idempotency.mjs";
 const PRIVACY_VERSION = "2026-08-18";
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
-const ALLOWED_SOURCES = ["newsletter_form", "vacation_homepage", "vacation_menu"];
+const ALLOWED_SOURCES = ["newsletter_form", "vacation_homepage", "vacation_menu", "checkout"];
 
 async function hashIp(ip: string): Promise<string> {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ip));
