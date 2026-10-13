@@ -154,14 +154,15 @@ function renderOrdersOverTime(sales) {
         const date = safeDate(sale.completed_at);
         if (!date) return;
 
-        const key = date.toISOString().split("T")[0];
+        // Grouped by the Europe/Berlin calendar date (js/revenue-date.js)
+        // -- not a UTC day split, which could silently put a sale
+        // completed late in the Berlin evening into the WRONG day's bar
+        // whenever UTC has already rolled over to the next date.
+        const key = RevenueDate.berlinDateKey(date);
 
         if (!grouped.has(key)) {
             grouped.set(key, {
-                label: date.toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric"
-                }),
+                label: RevenueDate.formatBerlinDate(date, { includeYear: false }),
                 count: 0
             });
         }
@@ -498,7 +499,7 @@ function filterSalesByRange(sales, range) {
 
         if (range === "30") return days >= 0 && days <= 30;
         if (range === "90") return days >= 0 && days <= 90;
-        if (range === "year") return date.getFullYear() === now.getFullYear();
+        if (range === "year") return RevenueDate.isSameBerlinYear(now, date);
 
         return true;
     });
@@ -632,16 +633,16 @@ function safeDate(value) {
     return Number.isNaN(date.getTime()) ? null : date;
 }
 
+// Europe/Berlin, not the admin's own browser timezone -- consistent
+// with how every date above is grouped (RevenueDate.berlinDateKey and
+// friends), so a sale shown here never disagrees with which day it
+// was actually counted toward.
 function formatDate(value) {
     const date = safeDate(value);
 
     if (!date) return "Unknown";
 
-    return date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric"
-    });
+    return RevenueDate.formatBerlinDate(date);
 }
 
 function showAnalyticsError(message) {

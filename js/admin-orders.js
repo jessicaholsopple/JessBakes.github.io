@@ -610,7 +610,32 @@ function renderStatusButtons(order) {
    UPDATE STATUS
 ========================================== */
 
+// Defense in depth against an accidental double-click/double-tap on
+// the same Complete button from this same browser tab -- the real,
+// authoritative guarantee against a genuine duplicate sale is the
+// database's own unique index on sales.order_id (see
+// supabase/migrations/20261013090000_sales_order_id_unique.sql and
+// createSaleFromOrder's handling of a 23505 conflict below), which
+// also covers two separate tabs/devices or a network-level retry this
+// in-memory Set could never see.
+const orderStatusUpdatesInFlight = new Set();
+
 async function updateOrderStatus(orderId, status) {
+
+    if (orderStatusUpdatesInFlight.has(orderId)) {
+        return;
+    }
+    orderStatusUpdatesInFlight.add(orderId);
+
+    try {
+        await updateOrderStatusInternal(orderId, status);
+    } finally {
+        orderStatusUpdatesInFlight.delete(orderId);
+    }
+
+}
+
+async function updateOrderStatusInternal(orderId, status) {
 
     const { data: currentOrder } =
         await supabaseClient
@@ -834,6 +859,12 @@ async function createSaleFromOrder(orderId) {
 
     }
 
+    // completed_at is deliberately NOT set here -- public.sales.completed_at
+    // defaults to now() at the database level, so this INSERT stamps the
+    // ACTUAL moment the order is marked Completed, authoritatively, from
+    // the database's own clock. Every revenue report (Dashboard/Sales/
+    // Analytics -- see js/revenue-date.js) groups by this column, never
+    // by orders.created_at (when the order was originally placed).
     const { data: sale, error: saleError } =
         await supabaseClient
             .from("sales")
@@ -868,6 +899,19 @@ async function createSaleFromOrder(orderId) {
             .single();
 
     if (saleError) {
+
+        // 23505 = unique_violation on sales_order_id_unique (see
+        // supabase/migrations/20261013090000_sales_order_id_unique.sql):
+        // another request (a double-click, a retried network request, or
+        // a genuinely concurrent completion) already won the race and
+        // inserted this order's sale between our existingSale check above
+        // and this INSERT. That row is already complete/complete-in-
+        // progress under its own sale id -- this call has nothing left to
+        // do and must NOT treat it as a failure (which would otherwise
+        // revert the order back out of "completed" in updateOrderStatus).
+        if (saleError.code === "23505") {
+            return true;
+        }
 
         console.error(saleError);
         alert("Unable to create sale.");

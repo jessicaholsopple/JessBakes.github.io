@@ -161,25 +161,27 @@ function renderSalesDashboard() {
     renderProfitBreakdown(filteredCompleted);
 }
 
+// Every bucket below groups by order.completed_at (sales.completed_at
+// -- database-generated at the moment the order was actually marked
+// Completed) against its Europe/Berlin calendar day/week/month/year,
+// never the admin's own browser timezone (js/revenue-date.js).
 function updateSalesCards(completedOrders, activeOrders) {
     const now = new Date();
 
     const todayRevenue = sumRevenue(
-        completedOrders.filter((order) => isSameDay(now, new Date(order.completed_at)))
+        completedOrders.filter((order) => RevenueDate.isSameBerlinDay(now, order.completed_at))
     );
 
     const weekRevenue = sumRevenue(
-        completedOrders.filter((order) => isThisWeek(new Date(order.completed_at), now))
+        completedOrders.filter((order) => RevenueDate.isSameBerlinWeek(now, order.completed_at))
     );
 
     const monthRevenue = sumRevenue(
-        completedOrders.filter((order) => isSameMonth(new Date(order.completed_at), now))
+        completedOrders.filter((order) => RevenueDate.isSameBerlinMonth(now, order.completed_at))
     );
 
     const yearRevenue = sumRevenue(
-        completedOrders.filter((order) =>
-            new Date(order.completed_at).getFullYear() === now.getFullYear()
-        )
+        completedOrders.filter((order) => RevenueDate.isSameBerlinYear(now, order.completed_at))
     );
 
     const totalRevenue = sumRevenue(completedOrders);
@@ -260,16 +262,15 @@ function buildRevenueSeries(orders, range) {
     const grouped = new Map();
 
     orders.forEach((order) => {
-        const date = new Date(order.completed_at);
         let key;
         let label;
 
         if (range === "year" || range === "all") {
-            key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-            label = date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+            key = RevenueDate.berlinMonthKey(order.completed_at);
+            label = RevenueDate.formatBerlinMonthLabel(order.completed_at);
         } else {
-            key = date.toISOString().split("T")[0];
-            label = date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            key = RevenueDate.berlinDateKey(order.completed_at);
+            label = RevenueDate.formatBerlinDate(order.completed_at, { includeYear: false });
         }
 
         if (!grouped.has(key)) grouped.set(key, { label, value: 0 });
@@ -592,9 +593,8 @@ function renderMonthlyRevenue(completedOrders) {
     const grouped = {};
 
     completedOrders.forEach((order) => {
-        const date = new Date(order.completed_at);
-        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-        const label = date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        const key = RevenueDate.berlinMonthKey(order.completed_at);
+        const label = RevenueDate.formatBerlinMonthLabelLong(order.completed_at);
 
         if (!grouped[key]) grouped[key] = { label, revenue: 0, orders: 0 };
         grouped[key].revenue += Number(order.subtotal) || 0;
@@ -714,11 +714,10 @@ function filterOrdersByRange(orders, range) {
     const now = new Date();
 
     return orders.filter((order) => {
-        const date = new Date(order.completed_at);
-        if (range === "today") return isSameDay(now, date);
-        if (range === "week") return isThisWeek(date, now);
-        if (range === "month") return isSameMonth(date, now);
-        if (range === "year") return date.getFullYear() === now.getFullYear();
+        if (range === "today") return RevenueDate.isSameBerlinDay(now, order.completed_at);
+        if (range === "week") return RevenueDate.isSameBerlinWeek(now, order.completed_at);
+        if (range === "month") return RevenueDate.isSameBerlinMonth(now, order.completed_at);
+        if (range === "year") return RevenueDate.isSameBerlinYear(now, order.completed_at);
         return true;
     });
 }
@@ -750,7 +749,7 @@ function getBestSalesDay(orders) {
     const totals = {};
 
     orders.forEach((order) => {
-        const label = new Date(order.completed_at).toLocaleDateString("en-US", { weekday: "long" });
+        const label = RevenueDate.berlinWeekdayName(order.completed_at);
         totals[label] = (totals[label] || 0) + Number(order.subtotal || 0);
     });
 
@@ -824,34 +823,13 @@ function usd(value) {
     }).format(Number(value) || 0);
 }
 
+// Displayed in Europe/Berlin, not the admin's own browser timezone --
+// consistent with the Berlin calendar day this sale is actually
+// grouped/totaled under everywhere above (RevenueDate.isSameBerlinDay
+// and friends), so a sale completed right around midnight never shows
+// a date that disagrees with which day's revenue it was counted in.
 function formatDate(date) {
-    return new Date(date).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric"
-    });
-}
-
-function isSameDay(a, b) {
-    return a.getDate() === b.getDate() &&
-        a.getMonth() === b.getMonth() &&
-        a.getFullYear() === b.getFullYear();
-}
-
-function isSameMonth(a, b) {
-    return a.getMonth() === b.getMonth() &&
-        a.getFullYear() === b.getFullYear();
-}
-
-function isThisWeek(date, now = new Date()) {
-    const start = new Date(now);
-    start.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-    start.setHours(0, 0, 0, 0);
-
-    const end = new Date(start);
-    end.setDate(start.getDate() + 7);
-
-    return date >= start && date < end;
+    return RevenueDate.formatBerlinDate(date);
 }
 
 function escapeHtml(text) {

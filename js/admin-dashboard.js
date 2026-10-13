@@ -74,14 +74,34 @@ function updateGreeting() {
 
 async function loadDashboardOrders() {
 
-    const { data, error } =
-        await supabaseClient
-            .from("orders")
-            .select(`
-                *,
-                order_items(*)
-            `)
-            .order("created_at", { ascending: false });
+    // Orders drive everything on this page EXCEPT revenue (recent-orders
+    // list, pending count, upcoming pickups, notifications) -- all keyed
+    // by order_placement/pickup dates, which is correct and untouched.
+    // Revenue is a SEPARATE query against `sales`, which is the only
+    // table that records when an order actually became completed
+    // (sales.completed_at, defaulted by the database to now() at the
+    // moment js/admin-orders.js's createSaleFromOrder() inserts the
+    // row -- never copied from orders.created_at). Querying `sales`
+    // directly here, instead of deriving revenue from
+    // orders.created_at the way this function used to, is the fix:
+    // revenue for an order placed Oct 10 and completed Oct 13 must
+    // land in Oct 13's total, not Oct 10's.
+    const [ordersResult, salesResult] =
+        await Promise.all([
+            supabaseClient
+                .from("orders")
+                .select(`
+                    *,
+                    order_items(*)
+                `)
+                .order("created_at", { ascending: false }),
+
+            supabaseClient
+                .from("sales")
+                .select("completed_at, revenue")
+        ]);
+
+    const { data, error } = ordersResult;
 
     if (error) {
 
@@ -96,6 +116,10 @@ async function loadDashboardOrders() {
 
     }
 
+    if (salesResult.error) {
+        console.error("Dashboard sales error:", salesResult.error);
+    }
+
     const orders =
         (data || []).map(order => ({
             ...order,
@@ -103,6 +127,12 @@ async function loadDashboardOrders() {
             order_items: Array.isArray(order.order_items)
                 ? order.order_items
                 : []
+        }));
+
+    const sales =
+        (salesResult.data || []).map(sale => ({
+            completed_at: sale.completed_at,
+            revenue: Number(sale.revenue) || 0
         }));
 
     const pending =
@@ -117,7 +147,7 @@ async function loadDashboardOrders() {
         orders.slice(0, 6)
     );
 
-    calculateRevenue(orders);
+    calculateRevenue(sales);
 
     renderUpcomingPickups(orders);
 
@@ -210,37 +240,38 @@ function renderRecentOrders(orders) {
     REVENUE
 ==================================================*/
 
-function calculateRevenue(orders) {
+/** `sales` here is the completed-order revenue ledger fetched in
+ *  loadDashboardOrders() -- NOT the `orders` table. Each row's own
+ *  `completed_at` (database-generated at the moment the order was
+ *  actually marked Completed) is what every bucket below is grouped
+ *  by, via Europe/Berlin calendar-day/week/month boundaries
+ *  (js/revenue-date.js) -- never the admin's own browser timezone. */
+function calculateRevenue(sales) {
 
-    const today =
-        new Date();
+    const now = new Date();
 
     let todayTotal = 0;
     let weekTotal = 0;
     let monthTotal = 0;
 
-    orders.forEach(order => {
+    sales.forEach(sale => {
 
-        if (order.status !== "completed") {
+        if (!sale.completed_at) {
             return;
         }
 
-        const orderDate =
-            new Date(order.created_at);
+        const revenue = sale.revenue;
 
-        const subtotal =
-            Number(order.subtotal) || 0;
-
-        if (isSameDay(today, orderDate)) {
-            todayTotal += subtotal;
+        if (RevenueDate.isSameBerlinDay(now, sale.completed_at)) {
+            todayTotal += revenue;
         }
 
-        if (isThisWeek(today, orderDate)) {
-            weekTotal += subtotal;
+        if (RevenueDate.isSameBerlinWeek(now, sale.completed_at)) {
+            weekTotal += revenue;
         }
 
-        if (isSameMonth(today, orderDate)) {
-            monthTotal += subtotal;
+        if (RevenueDate.isSameBerlinMonth(now, sale.completed_at)) {
+            monthTotal += revenue;
         }
 
     });
@@ -622,53 +653,6 @@ function euro(value) {
     ).format(
         Number(value) || 0
     );
-
-}
-
-function isSameDay(a, b) {
-
-    return (
-        a.getFullYear() === b.getFullYear() &&
-        a.getMonth() === b.getMonth() &&
-        a.getDate() === b.getDate()
-    );
-
-}
-
-function isSameMonth(a, b) {
-
-    return (
-        a.getFullYear() === b.getFullYear() &&
-        a.getMonth() === b.getMonth()
-    );
-
-}
-
-function isThisWeek(today, date) {
-
-    const start =
-        new Date(today);
-
-    start.setDate(
-        today.getDate() -
-        ((today.getDay() + 6) % 7)
-    );
-
-    start.setHours(
-        0,
-        0,
-        0,
-        0
-    );
-
-    const end =
-        new Date(start);
-
-    end.setDate(
-        start.getDate() + 7
-    );
-
-    return date >= start && date < end;
 
 }
 
