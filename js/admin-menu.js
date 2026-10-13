@@ -11,11 +11,14 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     setupLogout();
     ensureBallotModals();
+    restoreMenuUiState();
 
     await Promise.all([
         loadMenuManager(),
         loadBallotManager()
     ]);
+
+    restoreMenuScrollPosition();
 });
 
 document.addEventListener("keydown", (event) => {
@@ -26,6 +29,12 @@ document.addEventListener("keydown", (event) => {
     closeNewBallotModal();
 });
 
+// Persisted defensively, per the redesign's own requirement, even
+// though normal save/toggle/delete/duplicate never triggers a real
+// reload any more (see MENU ACTIONS below) -- this only matters if
+// some future action or a plain browser refresh interrupts the page.
+window.addEventListener("beforeunload", persistMenuUiState);
+
 
 /*==================================================
     MENU STATE
@@ -35,15 +44,80 @@ let menuItems = [];
 let recipes = [];
 let packagingProfiles = [];
 
-let recipeCosts = new Map();
-let packagingCosts = new Map();
-
 const MENU_CATEGORIES = [
     { key: "bread", label: "Bread" },
     { key: "cookie", label: "Cookies" },
     { key: "dessert", label: "Desserts" },
     { key: "seasonal", label: "Seasonal" }
 ];
+
+// Toolbar/table state -- lives independently of menuItems so a save,
+// toggle, delete, or duplicate (all of which now mutate menuItems in
+// place, never refetch) can never reset what the admin was searching
+// for, which tab they were on, or which filters were applied.
+let menuSearchQuery = "";
+let menuActiveCategory = "all";
+let menuStatusFilter = "";   // "" | "available" | "unavailable"
+let menuTypeFilter = "";     // "" | "standard" | "builder"
+let menuFeaturedFilter = ""; // "" | "featured" | "not_featured"
+let menuShellBuilt = false;
+let menuModalDirty = false;
+let menuModalSaving = false;
+let menuLastFocusedElement = null;
+
+const MENU_UI_STATE_KEY = "jb_admin_menu_ui_state";
+
+function persistMenuUiState() {
+    try {
+        sessionStorage.setItem(MENU_UI_STATE_KEY, JSON.stringify({
+            search: menuSearchQuery,
+            category: menuActiveCategory,
+            status: menuStatusFilter,
+            type: menuTypeFilter,
+            featured: menuFeaturedFilter,
+            scrollY: window.scrollY
+        }));
+    } catch {
+        // Not fatal -- e.g. sessionStorage disabled. The in-page state
+        // (module-level variables above) is still correct either way;
+        // this only affects recovery after an actual page reload.
+    }
+}
+
+function restoreMenuUiState() {
+    try {
+        const raw = sessionStorage.getItem(MENU_UI_STATE_KEY);
+        if (!raw) return;
+
+        const saved = JSON.parse(raw);
+        menuSearchQuery = saved.search || "";
+        menuActiveCategory = saved.category || "all";
+        menuStatusFilter = saved.status || "";
+        menuTypeFilter = saved.type || "";
+        menuFeaturedFilter = saved.featured || "";
+    } catch {
+        // Corrupt/unavailable storage -- fall back to defaults above,
+        // never throw and block the page from loading.
+    }
+}
+
+/** Runs once, after the shell + first filtered render exist, so
+ *  there's something tall enough to scroll to. A no-op when there's
+ *  no saved position (the common case -- this only matters after an
+ *  actual page reload, not after a normal save/toggle/delete). */
+function restoreMenuScrollPosition() {
+    try {
+        const raw = sessionStorage.getItem(MENU_UI_STATE_KEY);
+        if (!raw) return;
+
+        const saved = JSON.parse(raw);
+        if (typeof saved.scrollY === "number" && saved.scrollY > 0) {
+            window.scrollTo(0, saved.scrollY);
+        }
+    } catch {
+        // ignore
+    }
+}
 
 
 /*==================================================
@@ -55,14 +129,20 @@ async function loadMenuManager() {
 
     if (!container) return;
 
-    container.innerHTML = `<p>Loading menu items...</p>`;
+    // Only the very first load ever shows this -- it replaces nothing
+    // but the initial "Loading..." placeholder already in the static
+    // HTML. Every later data change (save/toggle/delete/duplicate)
+    // mutates menuItems in place and re-renders just the table body
+    // (see MENU ACTIONS below), so this teardown never runs again and
+    // never costs the admin their scroll position, search, or filters.
+    if (!menuShellBuilt) {
+        container.innerHTML = `<p>Loading menu items...</p>`;
+    }
 
     const [
     menuResult,
     recipeResult,
-    packagingResult,
-    recipeCostResult,
-    packagingCostResult
+    packagingResult
 ] = await Promise.all([
 
     supabaseClient
@@ -80,15 +160,7 @@ async function loadMenuManager() {
     supabaseClient
         .from("packaging_profiles")
         .select("*")
-        .order("name"),
-
-    supabaseClient
-        .from("recipe_costs")
-        .select("*"),
-
-    supabaseClient
-        .from("packaging_profile_costs")
-        .select("*")
+        .order("name")
 
 ]);
 
@@ -97,25 +169,6 @@ const error = menuResult.error;
 
 recipes = recipeResult.data || [];
 packagingProfiles = packagingResult.data || [];
-
-    // BUG-03: keys are consistently String()-coerced here and at both
-    // lookup sites below, matching the convention already used in
-    // admin-production.js and js/sale-calculations.js's own key() helper.
-    // Confirmed against live data that both IDs are `bigint`, not UUID, so
-    // this was never a live bug — purely a consistency/robustness fix.
-    recipeCosts = new Map(
-    (recipeCostResult.data || []).map(recipe => [
-        String(recipe.id),
-        recipe
-    ])
-);
-
-packagingCosts = new Map(
-    (packagingCostResult.data || []).map(profile => [
-        String(profile.id),
-        profile
-    ])
-);
 
     if (error) {
         console.error(error);
@@ -130,7 +183,8 @@ packagingCosts = new Map(
     menuItems = data || [];
 
     updateMenuStats();
-    renderMenuManager();
+    renderMenuManagerShell();
+    applyMenuFilters();
 }
 
 function updateMenuStats() {
@@ -152,262 +206,288 @@ function updateMenuStats() {
     MENU RENDERING
 ==================================================*/
 
-function renderMenuManager() {
+/** Builds the sticky toolbar (search/tabs/filters/add button) and the
+ *  table skeleton exactly once -- idempotent, same convention as
+ *  ensureBallotModals()/ensureStockModal() elsewhere in this codebase.
+ *  Never rebuilt on a data change, which is what lets the admin's
+ *  search text, active tab, filter selections, and scroll position
+ *  all survive a save/toggle/delete/duplicate untouched. */
+function renderMenuManagerShell() {
     const container = document.getElementById("menuManager");
 
-    if (!container) return;
+    if (!container || menuShellBuilt) return;
 
     container.innerHTML = `
-        <div class="menu-admin-toolbar">
-            <button
-                class="approve-btn"
-                onclick="openMenuItemModal()">
-                + Add Menu Item
-            </button>
-        </div>
+        <div class="menu-manager-toolbar">
+            <div class="menu-toolbar-row">
+                <input
+                    type="text"
+                    id="menuSearchInput"
+                    class="menu-search-input"
+                    placeholder="Search by item name...">
 
-        <div class="menu-admin-summary">
-            <div>
-                <strong>Total Items</strong>
-                <p>${menuItems.length}</p>
-            </div>
+                <select id="menuStatusFilterSelect">
+                    <option value="">All Availability</option>
+                    <option value="available">Available</option>
+                    <option value="unavailable">Unavailable</option>
+                </select>
 
-            <div>
-                <strong>Available</strong>
-                <p>${menuItems.filter(item => item.available).length}</p>
-            </div>
+                <select id="menuTypeFilterSelect">
+                    <option value="">All Types</option>
+                    <option value="standard">Standard</option>
+                    <option value="builder">Mix & Match Builder</option>
+                </select>
 
-            <div>
-                <strong>Featured</strong>
-                <p>${menuItems.filter(item => item.featured).length}</p>
-            </div>
-        </div>
-
-        <div class="menu-admin-sections">
-            ${MENU_CATEGORIES.map(category => {
-                const items = menuItems
-                    .filter(item => item.category === category.key)
-                    .sort(sortMenuCategoryItems);
-
-                return renderMenuCategory(category, items);
-            }).join("")}
-        </div>
-    `;
-}
-
-function renderMenuCategory(category, items) {
-    return `
-        <section class="menu-admin-category">
-            <div class="menu-category-header">
-                <div>
-                    <h3>${category.label}</h3>
-                    <p>${items.length} item${items.length === 1 ? "" : "s"}</p>
-                </div>
+                <select id="menuFeaturedFilterSelect">
+                    <option value="">All Items</option>
+                    <option value="featured">Featured Only</option>
+                    <option value="not_featured">Not Featured</option>
+                </select>
 
                 <button
-                    class="add-option-btn"
-                    onclick="openMenuItemModal('${category.key}')">
-                    + Add
+                    class="approve-btn"
+                    type="button"
+                    onclick="openMenuItemModal(menuActiveCategory !== 'all' ? menuActiveCategory : null)">
+                    + Add Menu Item
                 </button>
+
+                <a class="menu-stock-link" href="menu-stock.html">
+                    Manage Freezer Stock →
+                </a>
             </div>
 
-            ${
-                !items.length
-                    ? `<p class="empty-menu-category">No ${category.label.toLowerCase()} yet.</p>`
-                    : items.map(renderMenuItemCard).join("")
-            }
-        </section>
+            <div class="menu-category-tabs" role="tablist" aria-label="Filter by category" id="menuCategoryTabs">
+                <button
+                    type="button"
+                    class="menu-category-tab"
+                    role="tab"
+                    data-category="all"
+                    onclick="setMenuCategoryFilter('all')">
+                    All Items
+                </button>
+
+                ${MENU_CATEGORIES.map(category => `
+                    <button
+                        type="button"
+                        class="menu-category-tab"
+                        role="tab"
+                        data-category="${category.key}"
+                        onclick="setMenuCategoryFilter('${category.key}')">
+                        ${category.label}
+                    </button>
+                `).join("")}
+            </div>
+
+            <p class="menu-results-count" id="menuResultsCount"></p>
+        </div>
+
+        <div class="table-wrapper">
+            <table class="admin-table menu-items-table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>Category</th>
+                        <th>Type</th>
+                        <th>Price</th>
+                        <th>Available</th>
+                        <th>Featured</th>
+                        <th>Sort</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="menuTableBody"></tbody>
+            </table>
+        </div>
+    `;
+
+    menuShellBuilt = true;
+
+    document.getElementById("menuSearchInput").value = menuSearchQuery;
+    document.getElementById("menuStatusFilterSelect").value = menuStatusFilter;
+    document.getElementById("menuTypeFilterSelect").value = menuTypeFilter;
+    document.getElementById("menuFeaturedFilterSelect").value = menuFeaturedFilter;
+
+    let searchDebounce = null;
+    document.getElementById("menuSearchInput").addEventListener("input", (event) => {
+        menuSearchQuery = event.target.value;
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(() => {
+            applyMenuFilters();
+            persistMenuUiState();
+        }, 150);
+    });
+
+    document.getElementById("menuStatusFilterSelect").addEventListener("change", (event) => {
+        menuStatusFilter = event.target.value;
+        applyMenuFilters();
+        persistMenuUiState();
+    });
+
+    document.getElementById("menuTypeFilterSelect").addEventListener("change", (event) => {
+        menuTypeFilter = event.target.value;
+        applyMenuFilters();
+        persistMenuUiState();
+    });
+
+    document.getElementById("menuFeaturedFilterSelect").addEventListener("change", (event) => {
+        menuFeaturedFilter = event.target.value;
+        applyMenuFilters();
+        persistMenuUiState();
+    });
+
+    updateMenuCategoryTabsUi();
+}
+
+function setMenuCategoryFilter(categoryKey) {
+    menuActiveCategory = categoryKey;
+    updateMenuCategoryTabsUi();
+    applyMenuFilters();
+    persistMenuUiState();
+}
+
+function updateMenuCategoryTabsUi() {
+    const tabs = document.getElementById("menuCategoryTabs");
+    if (!tabs) return;
+
+    tabs.querySelectorAll(".menu-category-tab").forEach(tab => {
+        const isActive = tab.dataset.category === menuActiveCategory;
+        tab.classList.toggle("is-active", isActive);
+        tab.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
+}
+
+/** The one function every filter/search/tab control and every data
+ *  mutation (save/toggle/delete/duplicate/sort) funnels through. It
+ *  only ever touches #menuTableBody and the three summary numbers --
+ *  never the toolbar/search/tab controls themselves -- so nothing the
+ *  admin typed or selected is ever reset by it. */
+function applyMenuFilters() {
+    // Keeps the page-level overview cards (#menuItemCount/#availableCount,
+    // already shared with the Ballot section above) correct after every
+    // mutation too -- not just the initial load.
+    updateMenuStats();
+
+    const search = menuSearchQuery.trim().toLowerCase();
+
+    const filtered = menuItems.filter(item => {
+        if (menuActiveCategory !== "all" && item.category !== menuActiveCategory) return false;
+        if (search && !item.name.toLowerCase().includes(search)) return false;
+
+        if (menuStatusFilter === "available" && !item.available) return false;
+        if (menuStatusFilter === "unavailable" && item.available) return false;
+
+        if (menuTypeFilter && (item.product_type || "standard") !== menuTypeFilter) return false;
+
+        if (menuFeaturedFilter === "featured" && !item.featured) return false;
+        if (menuFeaturedFilter === "not_featured" && item.featured) return false;
+
+        return true;
+    }).sort(sortMenuCategoryItems);
+
+    renderMenuTable(filtered);
+
+    const countLabel = document.getElementById("menuResultsCount");
+    if (countLabel) {
+        countLabel.textContent =
+            `Showing ${filtered.length} of ${menuItems.length} item${menuItems.length === 1 ? "" : "s"}`;
+    }
+}
+
+function renderMenuTable(items) {
+    const tbody = document.getElementById("menuTableBody");
+    if (!tbody) return;
+
+    if (!items.length) {
+        tbody.innerHTML = `
+            <tr class="menu-empty-row">
+                <td colspan="8">No menu items match these filters.</td>
+            </tr>
+        `;
+        return;
+    }
+
+    tbody.innerHTML = items.map(renderMenuItemRow).join("");
+}
+
+const MENU_CATEGORY_LABELS = Object.fromEntries(
+    MENU_CATEGORIES.map(category => [category.key, category.label])
+);
+
+function renderMenuItemRow(item) {
+    const isBuilder = item.product_type === "builder";
+
+    return `
+        <tr class="${item.available ? "" : "is-disabled"}">
+            <td class="menu-item-name-cell" data-label="Item">
+                <strong>${escapeHtml(item.name)}</strong>
+                ${!item.available ? `<span class="disabled-pill">Archived</span>` : ""}
+                ${isBuilder ? `<span>Builder group: ${escapeHtml(item.builder_group || "Not assigned")}</span>` : ""}
+            </td>
+
+            <td data-label="Category">${escapeHtml(MENU_CATEGORY_LABELS[item.category] || item.category)}</td>
+
+            <td data-label="Type">${isBuilder ? "Builder" : "Standard"}</td>
+
+            <td data-label="Price">€${formatMenuPrice(item.price)}</td>
+
+            <td data-label="Available">
+                <label class="toggle-switch">
+                    <input
+                        type="checkbox"
+                        ${item.available ? "checked" : ""}
+                        onchange="toggleMenuAvailability('${item.id}', ${Boolean(item.available)})">
+                    <span class="toggle-track"></span>
+                </label>
+            </td>
+
+            <td data-label="Featured">
+                <label class="toggle-switch">
+                    <input
+                        type="checkbox"
+                        ${item.featured ? "checked" : ""}
+                        onchange="toggleFeatured('${item.id}', ${Boolean(item.featured)})">
+                    <span class="toggle-track"></span>
+                </label>
+            </td>
+
+            <td data-label="Sort">
+                <div class="menu-sort-cell">
+                    <button type="button" class="menu-sort-btn" title="Move earlier" onclick="updateSortOrder('${item.id}', -1)">↑</button>
+                    <span>${item.sort_order ?? 0}</span>
+                    <button type="button" class="menu-sort-btn" title="Move later" onclick="updateSortOrder('${item.id}', 1)">↓</button>
+                </div>
+            </td>
+
+            <td data-label="">
+                <button type="button" class="menu-edit-btn" onclick="openMenuItemModal(null, '${item.id}')">
+                    Edit
+                </button>
+            </td>
+        </tr>
     `;
 }
 
-function renderMenuItemCard(item) {
+/** Fixed-position confirmation, shown after every successful write
+ *  (save/toggle/delete/duplicate/sort). Nothing before this redesign
+ *  gave the admin ANY feedback beyond the page silently re-rendering
+ *  -- this is new, not a replacement of an existing component. */
+function showMenuToast(message, isError = false) {
+    let toast = document.getElementById("menuToast");
 
-    const isBuilder = item.product_type === "builder";
-
-    const recipe = isBuilder
-        ? null
-        : getRecipe(item.recipe_id);
-
-    const packaging = getPackaging(item.packaging_profile_id);
-
-    const recipeCost = isBuilder
-        ? 0
-        : Number(getRecipeCost(item.recipe_id)) *
-          Number(item.recipe_units_used || 1);
-
-    const packagingCost =
-        Number(getPackagingCost(item.packaging_profile_id));
-
-    const totalCost =
-        recipeCost + packagingCost;
-
-    const profit =
-        Number(item.price) - totalCost;
-
-    let profitClass = "profit-good";
-
-    if (profit < 5) {
-        profitClass = "profit-low";
-    } else if (profit < 8) {
-        profitClass = "profit-medium";
+    if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "menuToast";
+        toast.className = "admin-toast";
+        document.body.appendChild(toast);
     }
 
-    return `
+    toast.textContent = message;
+    toast.className = `admin-toast is-visible ${isError ? "is-error" : "is-success"}`;
 
-<article class="menu-admin-item ${item.available ? "" : "is-disabled"}">
-
-<div class="menu-product-card">
-
-<div class="menu-card-header">
-
-<div>
-
-<div class="menu-item-title-row">
-
-<h4>${escapeHtml(item.name)}</h4>
-
-<span class="menu-category-pill">
-${escapeHtml(item.category)}
-</span>
-
-<span class="menu-category-pill">
-${isBuilder ? "Builder" : "Standard"}
-</span>
-
-${item.featured
-? `<span class="featured-pill">★ Featured</span>`
-: ""}
-
-${!item.available
-? `<span class="disabled-pill">Archived</span>`
-: ""}
-
-</div>
-
-<p class="menu-description">
-${escapeHtml(item.description || "").replace(/\n/g,"<br>")}
-</p>
-
-</div>
-
-<div class="menu-price-badge">
-€${formatMenuPrice(item.price)}
-</div>
-
-</div>
-
-<div class="menu-details-grid">
-
-<div class="menu-detail-box">
-
-<small>${isBuilder ? "Builder Group" : "Recipe"}</small>
-
-<strong>
-${isBuilder
-    ? escapeHtml(item.builder_group || "Not Assigned")
-    : (recipe ? escapeHtml(recipe.name) : "Not Assigned")}
-</strong>
-
-<span>
-${
-    isBuilder
-        ? `${item.builder_size || 4} Items`
-        : `$${formatMoney(recipeCost)}`
-}
-</span>
-
-</div>
-
-<div class="menu-detail-box">
-
-<small>Packaging</small>
-
-<strong>
-${packaging ? escapeHtml(packaging.name) : "Not Assigned"}
-</strong>
-
-<span>
-$${formatMoney(packagingCost)}
-</span>
-
-</div>
-
-</div>
-
-<div class="menu-summary-row">
-
-<div>
-
-<small>Total Cost</small>
-
-<strong>
-$${formatMoney(totalCost)}
-</strong>
-
-</div>
-
-<div class="${profitClass}">
-
-<small>Estimated Profit</small>
-
-<strong>
-€${formatMoney(profit)}
-</strong>
-
-</div>
-
-</div>
-
-<div class="menu-product-toolbar">
-
-<button
-class="edit-option-btn"
-onclick="openMenuItemModal(null,'${item.id}')">
-Edit
-</button>
-
-<button
-class="add-option-btn"
-onclick="toggleFeatured('${item.id}',${Boolean(item.featured)})">
-${item.featured ? "Unfeature" : "Feature"}
-</button>
-
-<button
-class="edit-option-btn"
-onclick="updateSortOrder('${item.id}',-1)">
-↑
-</button>
-
-<button
-class="edit-option-btn"
-onclick="updateSortOrder('${item.id}',1)">
-↓
-</button>
-
-<button
-class="remove-option-btn"
-title="${item.available
-    ? "Remove from the public menu, New Order picker, and Mix & Match selectors -- past orders and sales keep showing it exactly as they were."
-    : "Make available on the public menu and New Order picker again."}"
-onclick="toggleMenuAvailability('${item.id}',${Boolean(item.available)})">
-${item.available ? "Archive" : "Restore"}
-</button>
-
-<button
-class="delete-btn"
-title="Permanently delete -- only allowed for an item that has never been used in any order or sale."
-onclick="deleteMenuItem('${item.id}','${escapeJs(item.name)}')">
-Delete
-</button>
-
-</div>
-
-</div>
-
-</article>
-
-`;
-
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => {
+        toast.classList.remove("is-visible");
+    }, 3200);
 }
 
 
@@ -423,9 +503,21 @@ function openMenuItemModal(category = null, itemId = null) {
         document.body.appendChild(modal);
     }
 
+    // So focus can return to exactly where it came from (the row's
+    // Edit button, or the toolbar's Add button) once the modal closes
+    // -- keyboard users never lose their place on the page.
+    menuLastFocusedElement = document.activeElement;
+
     const item = itemId
         ? menuItems.find(menuItem => menuItem.id === itemId)
         : null;
+
+    hideMenuModalError();
+
+    const duplicateBtn = document.getElementById("menuDuplicateBtn");
+    const deleteBtn = document.getElementById("menuDeleteBtn");
+    if (duplicateBtn) duplicateBtn.style.display = item ? "inline-block" : "none";
+    if (deleteBtn) deleteBtn.style.display = item ? "inline-block" : "none";
 
     document.getElementById("menuModalTitle").textContent =
         item ? "Edit Menu Item" : "Add Menu Item";
@@ -524,7 +616,23 @@ function openMenuItemModal(category = null, itemId = null) {
 
     toggleMenuProductFields();
 
+    const saveBtn = document.getElementById("menuSaveBtn");
+    if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save Item";
+    }
+    menuModalSaving = false;
+
     modal.style.display = "flex";
+
+    // Reset AFTER every field above has been programmatically set --
+    // populating the form must never itself count as an unsaved edit.
+    menuModalDirty = false;
+
+    const nameInput = document.getElementById("menuItemName");
+    if (nameInput) {
+        nameInput.focus();
+    }
 }
 
 function buildMenuItemModal() {
@@ -548,6 +656,12 @@ function buildMenuItemModal() {
             </div>
 
             <div class="modal-body">
+                <div
+                    id="menuModalError"
+                    class="admin-inline-message is-error"
+                    style="display:none;"
+                    role="alert"></div>
+
                 <input type="hidden" id="menuItemId">
 
                 <label for="menuItemName">Name</label>
@@ -709,6 +823,25 @@ function buildMenuItemModal() {
 
             <div class="modal-footer">
                 <button
+                    id="menuDeleteBtn"
+                    class="delete-btn"
+                    type="button"
+                    style="display:none; margin-right:auto;"
+                    title="Permanently delete -- only allowed for an item that has never been used in any order or sale."
+                    onclick="deleteMenuItemFromModal()">
+                    Delete
+                </button>
+
+                <button
+                    id="menuDuplicateBtn"
+                    class="secondary-btn"
+                    type="button"
+                    style="display:none;"
+                    onclick="duplicateMenuItemFromModal()">
+                    Duplicate
+                </button>
+
+                <button
                     class="secondary-btn"
                     type="button"
                     onclick="closeMenuItemModal()">
@@ -716,6 +849,7 @@ function buildMenuItemModal() {
                 </button>
 
                 <button
+                    id="menuSaveBtn"
                     class="primary-btn"
                     type="button"
                     onclick="saveMenuItem()">
@@ -724,6 +858,15 @@ function buildMenuItemModal() {
             </div>
         </div>
     `;
+
+    // Dirty-tracking via delegation, wired once at build time (not
+    // re-attached on every open) -- any real user input/change inside
+    // the form marks it dirty; openMenuItemModal() resets the flag
+    // back to false AFTER it finishes programmatically populating
+    // every field, so loading an item for editing is never itself
+    // treated as an unsaved change.
+    modal.querySelector(".modal-body").addEventListener("input", () => { menuModalDirty = true; });
+    modal.querySelector(".modal-body").addEventListener("change", () => { menuModalDirty = true; });
 
     return modal;
 }
@@ -782,12 +925,42 @@ function toggleRequiresRecipeField() {
 }
 
 
-function closeMenuItemModal() {
+/** `force=true` skips the unsaved-changes confirmation -- used right
+ *  after a successful save, where there's nothing left to discard. A
+ *  plain Cancel click, the ✕ button, or Escape all go through the
+ *  normal (non-forced) path and must never silently discard an edit
+ *  the admin hasn't saved yet. */
+function closeMenuItemModal(force = false) {
     const modal = document.getElementById("menuItemModal");
 
-    if (modal) {
-        modal.style.display = "none";
+    if (!modal || modal.style.display === "none") return;
+
+    if (!force && menuModalDirty) {
+        const discard = confirm("You have unsaved changes. Discard them?");
+        if (!discard) return;
     }
+
+    modal.style.display = "none";
+    menuModalDirty = false;
+
+    if (menuLastFocusedElement && typeof menuLastFocusedElement.focus === "function") {
+        menuLastFocusedElement.focus();
+    }
+    menuLastFocusedElement = null;
+}
+
+function showMenuModalError(message) {
+    const banner = document.getElementById("menuModalError");
+    if (!banner) return;
+    banner.textContent = message;
+    banner.style.display = "block";
+}
+
+function hideMenuModalError() {
+    const banner = document.getElementById("menuModalError");
+    if (!banner) return;
+    banner.style.display = "none";
+    banner.textContent = "";
 }
 
 
@@ -861,29 +1034,40 @@ const recipeId =
     const featured =
         document.getElementById("menuItemFeatured").checked;
 
+    hideMenuModalError();
+
     if (!name) {
-        alert("Please enter an item name.");
+        showMenuModalError("Please enter an item name.");
         return;
     }
 
     if (Number.isNaN(price) || price < 0) {
-        alert("Please enter a valid price.");
+        showMenuModalError("Please enter a valid price.");
         return;
     }
 
     if (productType === "standard" && requiresRecipe && !recipeId) {
-        alert("Please select a recipe for this standard product, or uncheck \"This product needs a recipe\" if it legitimately has none.");
+        showMenuModalError("Please select a recipe for this standard product, or uncheck \"This product needs a recipe\" if it legitimately has none.");
         return;
     }
 
     if (productType === "builder" && !builderGroup) {
-        alert("Please enter a builder group.");
+        showMenuModalError("Please enter a builder group.");
         return;
     }
 
     if (!packagingProfileId) {
-        alert("Please select a packaging profile.");
+        showMenuModalError("Please select a packaging profile.");
         return;
+    }
+
+    if (menuModalSaving) return; // duplicate-submit guard (double click / double Enter)
+    menuModalSaving = true;
+
+    const saveBtn = document.getElementById("menuSaveBtn");
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving...";
     }
 
     const payload = {
@@ -928,55 +1112,89 @@ builder_size:
             .from("menu_items")
             .update(payload)
             .eq("id", id)
+            .select()
+            .single()
         : supabaseClient
             .from("menu_items")
-            .insert(payload);
+            .insert(payload)
+            .select()
+            .single();
 
-    const { error } = await query;
+    const { data: savedItem, error } = await query;
+
+    menuModalSaving = false;
+    if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save Item";
+    }
 
     if (error) {
         console.error(error);
-        alert(error.message);
+        // Form stays open with every field exactly as the admin left
+        // it -- nothing is cleared or reset on a failed save.
+        showMenuModalError(error.message);
         return;
     }
 
-    closeMenuItemModal();
-    await loadMenuManager();
+    if (id) {
+        const index = menuItems.findIndex(menuItem => menuItem.id === id);
+        if (index !== -1) menuItems[index] = savedItem;
+    } else {
+        menuItems.push(savedItem);
+    }
+
+    applyMenuFilters();
+    showMenuToast(`"${savedItem.name}" saved.`);
+    closeMenuItemModal(true);
 }
 
 
 async function toggleMenuAvailability(id, currentlyAvailable) {
-    const { error } = await supabaseClient
+    const { data, error } = await supabaseClient
         .from("menu_items")
         .update({
             available: !currentlyAvailable
         })
-        .eq("id", id);
+        .eq("id", id)
+        .select()
+        .single();
 
     if (error) {
         console.error(error);
-        alert(error.message);
+        showMenuToast(error.message, true);
+        applyMenuFilters(); // snaps the toggle back to the real (unchanged) value
         return;
     }
 
-    await loadMenuManager();
+    const item = menuItems.find(menuItem => menuItem.id === id);
+    if (item) Object.assign(item, data);
+
+    applyMenuFilters();
+    showMenuToast(data.available ? `"${data.name}" is now available.` : `"${data.name}" was archived.`);
 }
 
 async function toggleFeatured(itemId, currentValue) {
-    const { error } = await supabaseClient
+    const { data, error } = await supabaseClient
         .from("menu_items")
         .update({
             featured: !currentValue
         })
-        .eq("id", itemId);
+        .eq("id", itemId)
+        .select()
+        .single();
 
     if (error) {
         console.error(error);
-        alert(error.message);
+        showMenuToast(error.message, true);
+        applyMenuFilters();
         return;
     }
 
-    await loadMenuManager();
+    const item = menuItems.find(menuItem => menuItem.id === itemId);
+    if (item) Object.assign(item, data);
+
+    applyMenuFilters();
+    showMenuToast(data.featured ? `"${data.name}" is now featured.` : `"${data.name}" is no longer featured.`);
 }
 
 /**
@@ -1047,11 +1265,40 @@ async function deleteMenuItem(itemId, itemName) {
 
     if (error) {
         console.error(error);
-        alert(error.message);
+        showMenuToast(error.message, true);
         return;
     }
 
-    await loadMenuManager();
+    const index = menuItems.findIndex(menuItem => menuItem.id === itemId);
+    if (index !== -1) menuItems.splice(index, 1);
+
+    applyMenuFilters();
+    showMenuToast(`"${itemName}" deleted.`);
+}
+
+/** Wired from the modal footer's Delete button -- looks up the
+ *  currently-open item's id/name from the hidden field + in-memory
+ *  menuItems so the row-level delete flow above (reference check,
+ *  confirmation, in-place removal) is reused exactly as-is. */
+async function deleteMenuItemFromModal() {
+    const id = document.getElementById("menuItemId").value;
+    const item = menuItems.find(menuItem => menuItem.id === id);
+    if (!item) return;
+
+    await deleteMenuItem(id, item.name);
+
+    // Only close if the delete actually went through -- a cancelled
+    // confirmation or a failed delete must leave the form open with
+    // the item's data still showing, same as any other failed save.
+    if (!menuItems.some(menuItem => menuItem.id === id)) {
+        closeMenuItemModal(true);
+    }
+}
+
+async function duplicateMenuItemFromModal() {
+    const id = document.getElementById("menuItemId").value;
+    await duplicateMenuItem(id);
+    closeMenuItemModal(true);
 }
 
 async function duplicateMenuItem(itemId) {
@@ -1087,17 +1334,21 @@ async function duplicateMenuItem(itemId) {
             Number(item.sort_order || 0) + 1
     };
 
-    const { error } = await supabaseClient
+    const { data, error } = await supabaseClient
         .from("menu_items")
-        .insert(copy);
+        .insert(copy)
+        .select()
+        .single();
 
     if (error) {
         console.error(error);
-        alert(error.message);
+        showMenuToast(error.message, true);
         return;
     }
 
-    await loadMenuManager();
+    menuItems.push(data);
+    applyMenuFilters();
+    showMenuToast(`"${data.name}" created.`);
 }
 
 
@@ -1111,20 +1362,23 @@ async function updateSortOrder(itemId, direction) {
         Number(item.sort_order || 1) + direction
     );
 
-    const { error } = await supabaseClient
+    const { data, error } = await supabaseClient
         .from("menu_items")
         .update({
             sort_order: newOrder
         })
-        .eq("id", itemId);
+        .eq("id", itemId)
+        .select()
+        .single();
 
     if (error) {
         console.error(error);
-        alert(error.message);
+        showMenuToast(error.message, true);
         return;
     }
 
-    await loadMenuManager();
+    Object.assign(item, data);
+    applyMenuFilters();
 }
 
 
@@ -1850,47 +2104,6 @@ function escapeJs(value) {
         .replaceAll("\n", " ");
 }
 
-function getRecipe(recipeId) {
-
-    return recipes.find(recipe =>
-        recipe.id === recipeId
-    );
-
-}
-
-function getPackaging(profileId) {
-
-    return packagingProfiles.find(profile =>
-        profile.id === profileId
-    );
-
-}
-
-function getRecipeCost(recipeId) {
-
-    return Number(
-        recipeCosts.get(String(recipeId))?.cost_per_yield_item || 0
-    );
-
-}
-
-function getPackagingCost(profileId) {
-
-    const profile =
-        packagingCosts.get(String(profileId));
-
-    return Number(profile?.packaging_cost || 0);
-
-}
-
-
-function formatMoney(value) {
-
-    return Number(value || 0).toFixed(2);
-
-}
-
-
 /*==================================================
     GLOBAL EXPORTS
 ==================================================*/
@@ -1902,9 +2115,13 @@ window.saveMenuItem = saveMenuItem;
 window.toggleMenuAvailability = toggleMenuAvailability;
 window.toggleFeatured = toggleFeatured;
 window.deleteMenuItem = deleteMenuItem;
+window.deleteMenuItemFromModal = deleteMenuItemFromModal;
 window.duplicateMenuItem = duplicateMenuItem;
+window.duplicateMenuItemFromModal = duplicateMenuItemFromModal;
 window.updateSortOrder = updateSortOrder;
 window.toggleMenuProductFields = toggleMenuProductFields;
+window.setMenuCategoryFilter = setMenuCategoryFilter;
+window.applyMenuFilters = applyMenuFilters;
 
 window.loadBallotManager = loadBallotManager;
 window.openNewOptionModal = openNewOptionModal;

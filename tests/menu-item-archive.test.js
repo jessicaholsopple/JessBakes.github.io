@@ -106,11 +106,13 @@ function loadAdminMenuSandbox(resolveQuery) {
 
     const sandbox = {
         document: fakeDocument,
-        window: {},
+        window: { addEventListener: () => {} },
         console,
         supabaseClient,
         alert: (msg) => alertCalls.push(msg),
-        confirm: (msg) => { confirmCalls.push(msg); return confirmReturnValue; }
+        confirm: (msg) => { confirmCalls.push(msg); return confirmReturnValue; },
+        setTimeout: () => 1,
+        clearTimeout: () => {}
     };
     vm.createContext(sandbox);
 
@@ -253,9 +255,14 @@ test("8. cancelling the confirm on a genuinely unused product deletes nothing", 
     assert.ok(!supabaseClient.callLog.some(c => c.table === "menu_items" && c.op === "delete"));
 });
 
-test("9. the Archive/Delete buttons are labeled and titled to clearly distinguish the two actions", () => {
+test("9. the Archive/Delete actions are labeled and titled to clearly distinguish the two actions", () => {
     const source = read("js/admin-menu.js");
-    assert.match(source, /\$\{item\.available \? "Archive" : "Restore"\}/);
+    // The redesigned compact table uses an inline Available toggle-switch
+    // in place of the old card's Archive/Restore button -- same
+    // underlying action (toggleMenuAvailability), just a different
+    // control. An archived (unavailable) row still gets its own clear
+    // "Archived" text badge, and Delete keeps its original warning title.
+    assert.match(source, /onchange="toggleMenuAvailability/);
     assert.match(source, /Permanently delete -- only allowed for an item that has never been used/);
     assert.match(source, />Archived</);
 });
