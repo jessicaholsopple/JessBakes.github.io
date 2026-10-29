@@ -32,6 +32,26 @@ async function processPending(adminClient: any) {
     // on. Rows for a disabled category are simply left pending --
     // no special-casing needed at enqueue time, and nothing is lost
     // when the admin later flips the toggle on.
+    //
+    // Disabled-category rows must also be excluded from the batch
+    // query itself, not just skipped once fetched: this query is
+    // ordered oldest-first and capped at BATCH_SIZE, so a backlog of
+    // gated rows (e.g. admin_new_order sitting pending since
+    // owner_notifications_enabled was turned off) would otherwise
+    // fill every batch slot run after run and starve enabled
+    // categories -- like order_received/order_confirmed -- queued
+    // behind them. is_test rows are still exempt from the gate.
+    const disabledTypes: string[] = [];
+    if (!settings.order_emails_enabled) {
+        disabledTypes.push("order_received", "order_confirmed", "order_confirmed_resend", "order_cancelled");
+    }
+    if (!settings.owner_notifications_enabled) {
+        disabledTypes.push("admin_new_order");
+    }
+    if (!settings.newsletter_enabled) {
+        disabledTypes.push("newsletter_welcome", "weekly_menu");
+    }
+
     let query = adminClient
         .from("email_outbox")
         .select("*")
@@ -40,6 +60,10 @@ async function processPending(adminClient: any) {
         .lte("next_attempt_at", now)
         .order("created_at", { ascending: true })
         .limit(BATCH_SIZE);
+
+    if (disabledTypes.length) {
+        query = query.or(`is_test.eq.true,email_type.not.in.(${disabledTypes.join(",")})`);
+    }
 
     const { data: rows } = await query;
     const results = { processed: 0, sent: 0, failed: 0, skipped: 0 };
