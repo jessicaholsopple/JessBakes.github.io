@@ -157,6 +157,84 @@ test("9. every input row appears in exactly one output — nothing is silently d
 });
 
 /* ==========================================
+   partitionOrderItemsForEditing — promotional reward lines
+
+   A promo reward reuses the SAME real menu_item_id as a paid line of
+   that cookie (see js/promotions-shared.js) -- these tests confirm
+   that never collides with flatItemsById's id-keyed map, the exact
+   bug class BUG-02 already fixed for builder lines above.
+   ========================================== */
+
+const PROMO_ITEM = {
+    id: "oi-promo-1",
+    order_id: "order-1",
+    menu_item_id: "menu-brown-butter",
+    item_name: "Brown Butter Sea Salt Chocolate Chip",
+    quantity: 1,
+    price_at_purchase: 0,
+    line_total: 0,
+    builder_details: null,
+    promotion_redemption_id: "redemption-1"
+};
+
+const PAID_LINE_SAME_MENU_ITEM = {
+    id: "oi-paid-brown-butter",
+    order_id: "order-1",
+    menu_item_id: "menu-brown-butter",
+    item_name: "Brown Butter Sea Salt Chocolate Chip",
+    quantity: 2,
+    price_at_purchase: 4,
+    line_total: 8,
+    builder_details: null
+};
+
+test("11. a promo reward line is partitioned into its own array, not flatItemsById", () => {
+    const { flatItemsById, promoItems } = OrderEditor.partitionOrderItemsForEditing([PROMO_ITEM]);
+
+    assert.equal(Object.keys(flatItemsById).length, 0);
+    assert.equal(promoItems.length, 1);
+    assert.equal(promoItems[0].menu_item_id, "menu-brown-butter");
+    assert.equal(promoItems[0].promotionRedemptionId, "redemption-1");
+});
+
+test("12. a promo reward line and a PAID line of the SAME menu item both survive distinctly -- the id-collision case", () => {
+    const { flatItemsById, promoItems } =
+        OrderEditor.partitionOrderItemsForEditing([PAID_LINE_SAME_MENU_ITEM, PROMO_ITEM]);
+
+    assert.equal(flatItemsById["menu-brown-butter"].quantity, 2);
+    assert.equal(flatItemsById["menu-brown-butter"].price, 4);
+    assert.equal(promoItems.length, 1);
+    assert.equal(promoItems[0].price_at_purchase, 0);
+});
+
+test("13. every input row still appears in exactly one output once promoItems exists as a third bucket", () => {
+    const input = [FLAT_ITEM_A, BUILDER_ITEM_1, PROMO_ITEM];
+    const { flatItemsById, builderItems, promoItems } = OrderEditor.partitionOrderItemsForEditing(input);
+
+    const totalOut = Object.keys(flatItemsById).length + builderItems.length + promoItems.length;
+    assert.equal(totalOut, input.length);
+});
+
+test("14. buildOrderItemsPayload carries a kept promo item through at price 0, with its real menu_item_id", () => {
+    const { flatItemsById, builderItems, promoItems } = OrderEditor.partitionOrderItemsForEditing([FLAT_ITEM_A, PROMO_ITEM]);
+    const payload = OrderEditor.buildOrderItemsPayload("order-1", flatItemsById, builderItems, promoItems);
+
+    const promoRow = payload.find(row => row.menu_item_id === "menu-brown-butter" && row.item_name === "Brown Butter Sea Salt Chocolate Chip");
+    assert.ok(promoRow);
+    assert.equal(promoRow.price_at_purchase, 0);
+    assert.equal(promoRow.line_total, 0);
+    assert.equal(payload.length, 2);
+});
+
+test("15. buildOrderItemsPayload omits a promo item that was removed from the promoItems array (admin clicked Remove)", () => {
+    const { flatItemsById, builderItems } = OrderEditor.partitionOrderItemsForEditing([FLAT_ITEM_A, PROMO_ITEM]);
+    const payload = OrderEditor.buildOrderItemsPayload("order-1", flatItemsById, builderItems, []);
+
+    assert.equal(payload.length, 1);
+    assert.equal(payload[0].menu_item_id, "menu-sourdough");
+});
+
+/* ==========================================
    buildOrderItemsPayload — round-trip
    ========================================== */
 

@@ -60,6 +60,16 @@ let manualBuilderBoxes = {};
 // a whole line.
 let manualUnresolvedBuilderItems = [];
 
+// Promotional reward lines on the order currently being edited --
+// always carried through on save unless the admin clicks Remove on
+// one (or the recomputed paid subtotal, at save time, no longer
+// meets that line's promotion threshold, in which case it's removed
+// automatically -- see saveManualOrder()). Never editable in price or
+// quantity; see OrderEditor.partitionOrderItemsForEditing's own
+// comment on why these can't share manualOrderItems' id-keyed map.
+let manualPromoItems = [];
+let manualPromoItemsToRemove = [];
+
 
 /* ==========================================
    MENU ITEMS FOR MANUAL ORDERS
@@ -506,7 +516,7 @@ function renderOrderItems(items) {
 
                     <span class="order-item-name">
 
-                        ${escapeHtml(item.item_name)}
+                        ${item.promotion_redemption_id ? '<span class="promo-badge">FREE</span>' : ""}${escapeHtml(item.item_name)}
 
                     </span>
 
@@ -518,7 +528,7 @@ function renderOrderItems(items) {
 
             <div class="order-item-right">
 
-                €${Number(item.line_total || 0).toFixed(2)}
+                ${item.promotion_redemption_id ? "€0.00" : "€" + Number(item.line_total || 0).toFixed(2)}
 
             </div>
 
@@ -1294,6 +1304,8 @@ async function openManualOrderModal() {
     manualOrderItems = {};
     manualBuilderBoxes = {};
     manualUnresolvedBuilderItems = [];
+    manualPromoItems = [];
+    manualPromoItemsToRemove = [];
 
    document.querySelector(
     "#manualOrderModal .modal-header h2"
@@ -1341,6 +1353,8 @@ function closeManualOrderModal() {
     manualOrderItems = {};
     manualBuilderBoxes = {};
     manualUnresolvedBuilderItems = [];
+    manualPromoItems = [];
+    manualPromoItemsToRemove = [];
 
 }
 
@@ -1420,6 +1434,7 @@ function renderManualMenuItems() {
 
     container.innerHTML = `
         ${renderManualUnresolvedBuilderItems()}
+        ${renderManualPromoItems()}
 
         <div class="manual-pos-list">
             ${menuItems.map(item => renderManualMenuItem(item)).join("")}
@@ -1474,6 +1489,59 @@ function renderManualUnresolvedBuilderItems() {
             `).join("")}
         </div>
     `;
+
+}
+
+/** Promotional reward lines already on this order -- never editable
+ *  in price/quantity here, matching the cart's own "locked" free
+ *  reward line. Removing one here queues it for removal from
+ *  promotion_redemptions via admin_reconcile_order_promotions, called
+ *  alongside admin_replace_order_items in saveManualOrder() -- see
+ *  that RPC's comments in
+ *  supabase/migrations/20261118110000_submit_order_promotions_aware.sql. */
+function renderManualPromoItems() {
+
+    if (!manualPromoItems.length) return "";
+
+    return `
+        <div class="manual-pos-list" style="margin-bottom:16px;">
+            <p><strong>Promotional rewards on this order</strong></p>
+
+            ${manualPromoItems.map(item => `
+                <div class="manual-pos-item">
+                    <div>
+                        <span class="promo-badge">FREE</span>
+                        <strong>${escapeHtml(item.item_name)}</strong>
+                        <small>Qty ${item.quantity} • €0.00</small>
+                    </div>
+
+                    <div class="manual-pos-controls">
+                        <button
+                            type="button"
+                            class="delete-btn"
+                            onclick="removeManualPromoItem('${item.localId}')">
+                            Remove reward
+                        </button>
+                    </div>
+                </div>
+            `).join("")}
+        </div>
+    `;
+
+}
+
+function removeManualPromoItem(localId) {
+
+    const item = manualPromoItems.find(i => String(i.localId) === String(localId));
+    if (!item) return;
+
+    if (!confirm(`Remove the free ${item.item_name} reward from this order?`)) return;
+
+    manualPromoItemsToRemove.push(item.promotionRedemptionId);
+    manualPromoItems = manualPromoItems.filter(i => String(i.localId) !== String(localId));
+
+    renderManualMenuItems();
+    updateManualOrderSummary();
 
 }
 
@@ -2027,8 +2095,41 @@ if (editingOrderId) {
     // and every Mix & Match box (new or edited) is built fresh from its
     // live selections -- so re-inserting order_items on save can never
     // silently drop or corrupt a box.
+    // Promotion revalidation: an edit that drops the paid subtotal below
+    // a kept reward's qualifying threshold must not silently leave that
+    // free line in place (the admin may not have noticed or clicked
+    // Remove themselves) -- re-check every surviving manualPromoItems
+    // line against its promotion's live threshold using the SAME
+    // paid-only subtotal getManualOrderSubtotal() already computes, and
+    // fold any that no longer qualify into the removal list below.
+    let promoItemsToKeep = manualPromoItems;
+    if (editingOrderId && manualPromoItems.length) {
+        const paidSubtotal = getManualOrderSubtotal();
+        const redemptionIds = manualPromoItems.map(i => i.promotionRedemptionId);
+        const { data: redemptions } = await supabaseClient
+            .from("promotion_redemptions")
+            .select("id, promotion_id, promotions(qualifying_subtotal_min, threshold_operator)")
+            .in("id", redemptionIds);
+
+        const noLongerQualifying = new Set();
+        (redemptions || []).forEach(r => {
+            const promo = r.promotions;
+            if (!promo) return;
+            const meets = promo.threshold_operator === "gte"
+                ? paidSubtotal >= promo.qualifying_subtotal_min
+                : paidSubtotal > promo.qualifying_subtotal_min;
+            if (!meets) noLongerQualifying.add(r.id);
+        });
+
+        if (noLongerQualifying.size) {
+            manualPromoItemsToRemove.push(...noLongerQualifying);
+            promoItemsToKeep = manualPromoItems.filter(i => !noLongerQualifying.has(i.promotionRedemptionId));
+            alert("This order no longer qualifies for one or more promotional rewards -- they will be removed on save.");
+        }
+    }
+
     const orderItems = [
-        ...OrderEditor.buildOrderItemsPayload(order.id, manualOrderItems, manualUnresolvedBuilderItems),
+        ...OrderEditor.buildOrderItemsPayload(order.id, manualOrderItems, manualUnresolvedBuilderItems, promoItemsToKeep),
         ...OrderEditor.buildBuilderBoxOrderItems(order.id, manualBuilderBoxes)
     ];
 
@@ -2065,6 +2166,22 @@ if (editingOrderId) {
         alert(itemError.message);
         return;
 
+    }
+
+    // Reconcile promotion_redemptions against whatever just got
+    // removed above -- a SEPARATE RPC call, not folded into
+    // admin_replace_order_items, so that RPC's payload stays generic
+    // (see its own migration comments). A failure here is reported but
+    // non-fatal to the item save that already succeeded.
+    if (editingOrderId && manualPromoItemsToRemove.length) {
+        const { error: reconcileError } = await supabaseClient.rpc("admin_reconcile_order_promotions", {
+            p_order_id: order.id,
+            p_remove_redemption_ids: manualPromoItemsToRemove
+        });
+        if (reconcileError) {
+            console.error(reconcileError);
+            alert("Order items were saved, but a promotion record may be out of sync: " + reconcileError.message);
+        }
     }
 
     closeManualOrderModal();
@@ -2271,6 +2388,13 @@ async function editOrder(orderId) {
     // editable; anything that can't be matched stays preserved, remove-only.
     const partitioned = OrderEditor.partitionOrderItemsForEditing(order.order_items);
     manualOrderItems = partitioned.flatItemsById;
+    // Promotional reward lines -- never merged into manualOrderItems (see
+    // partitionOrderItemsForEditing's own comment on why that would
+    // collide with a paid line of the same cookie). Preserved as-is on
+    // save unless the admin explicitly removes one; removal is
+    // reconciled against promotion_redemptions via a dedicated RPC call
+    // in saveManualOrder(), not silently handled by admin_replace_order_items.
+    manualPromoItems = partitioned.promoItems;
 
     const liveBuilderProducts = menuItems.filter(m => m.product_type === "builder");
     const grouped = OrderEditor.groupBuilderItemsByLiveProduct(partitioned.builderItems, liveBuilderProducts);

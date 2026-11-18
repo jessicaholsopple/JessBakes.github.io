@@ -55,7 +55,7 @@ async function renderForRow(adminClient: any, row: any) {
         if (row.email_type === "admin_new_order") {
             const { data: items } = await adminClient
                 .from("order_items")
-                .select("item_name, quantity, price_at_purchase, line_total")
+                .select("item_name, quantity, price_at_purchase, line_total, promotion_redemption_id")
                 .eq("order_id", order.id);
 
             return {
@@ -71,7 +71,8 @@ async function renderForRow(adminClient: any, row: any) {
                     pickupTime: order.pickup_time,
                     items: (items || []).map((i: any) => ({
                         name: i.item_name, quantity: i.quantity,
-                        unitPriceEur: i.price_at_purchase, lineTotalEur: i.line_total
+                        unitPriceEur: i.price_at_purchase, lineTotalEur: i.line_total,
+                        isPromo: Boolean(i.promotion_redemption_id)
                     })),
                     subtotalEur: order.subtotal,
                     specialInstructions: order.notes,
@@ -83,7 +84,7 @@ async function renderForRow(adminClient: any, row: any) {
         if (row.email_type === "order_received") {
             const { data: items } = await adminClient
                 .from("order_items")
-                .select("item_name, quantity, line_total")
+                .select("item_name, quantity, line_total, promotion_redemption_id")
                 .eq("order_id", order.id);
 
             return {
@@ -92,7 +93,8 @@ async function renderForRow(adminClient: any, row: any) {
                     customerName: order.customer_name,
                     orderRef,
                     items: (items || []).map((i: any) => ({
-                        name: i.item_name, quantity: i.quantity, lineTotalEur: i.line_total
+                        name: i.item_name, quantity: i.quantity, lineTotalEur: i.line_total,
+                        isPromo: Boolean(i.promotion_redemption_id)
                     })),
                     subtotalEur: order.subtotal,
                     orderType: order.order_type,

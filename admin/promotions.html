@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+    <title>Promotions | Jess Bakes Sourdough</title>
+
+    <link
+        rel="stylesheet"
+        href="../css/admin.css">
+
+  <link rel="icon" type="image/png" href="../images/jess-bakes-logo.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/images/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Jess Bakes">
+  <meta name="theme-color" content="#7b2b22">
+</head>
+
+<body>
+
+<div class="admin-shell">
+
+    <aside class="sidebar">
+
+        <div class="sidebar-brand">
+
+            <h2>Jess Bakes</h2>
+
+            <span>SOURDOUGH</span>
+
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Admin navigation"></nav>
+
+        <button
+            id="logoutBtn"
+            class="logout-btn">
+
+            Sign Out
+
+        </button>
+
+    </aside>
+
+    <main class="admin-content">
+
+        <header class="admin-header">
+
+            <div>
+
+                <h1>
+
+                    Promotions
+
+                </h1>
+
+                <p>
+
+                    Create, schedule, and manage automatic promotions. All times shown in Europe/Berlin.
+
+                </p>
+
+            </div>
+
+        </header>
+
+        <section class="overview-grid">
+
+            <article class="overview-card">
+                <span class="overview-label">Active Now</span>
+                <h2 id="promoActiveCount">--</h2>
+            </article>
+
+            <article class="overview-card">
+                <span class="overview-label">Scheduled</span>
+                <h2 id="promoScheduledCount">--</h2>
+            </article>
+
+            <article class="overview-card">
+                <span class="overview-label">Draft</span>
+                <h2 id="promoDraftCount">--</h2>
+            </article>
+
+            <article class="overview-card">
+                <span class="overview-label">Total Redemptions</span>
+                <h2 id="promoRedemptionCount">--</h2>
+            </article>
+
+        </section>
+
+        <section class="dashboard-card">
+
+            <div class="dashboard-card-header">
+
+                <h2>
+
+                    Promotions
+
+                </h2>
+
+            </div>
+
+            <div id="promotionsManager">
+
+                Loading...
+
+            </div>
+
+        </section>
+
+    </main>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script src="../js/supabase.js"></script>
+
+<script src="../js/admin-shell.js"></script>
+<script src="../js/auth.js"></script>
+
+<script src="../js/layout.js"></script>
+
+<script src="../js/weekly-schedule.js"></script>
+<script src="../js/promotions-shared.js"></script>
+<script src="../js/admin-promotions.js"></script>
+
+</body>
+
+</html>

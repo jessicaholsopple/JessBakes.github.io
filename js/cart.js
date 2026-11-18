@@ -25,6 +25,20 @@ let rerenderMenu = null;
 let cartExpiryTimerId = null;
 let menuRevalidationInFlight = false;
 
+// Active automatic promotions (joined with their reward items), as
+// last fetched -- see js/promotions-shared.js for the pure matching
+// logic this drives, and refreshAndValidateCart() for when this gets
+// refreshed from the live public_active_promotions view. Populated at
+// init by menu.js's loadActivePromotions(), passed into
+// initializeCart() alongside the live menu, exactly like
+// cartMenuItems is.
+let cartActivePromotions = [];
+// Set once a promotion newly qualifies but the customer hasn't yet
+// picked a reward flavor -- renderCart() shows the chooser for this
+// while it's non-null. Never auto-populates the cart itself; only an
+// explicit applyEligiblePromotion() call does that.
+let pendingPromotionChoice = null;
+
 /** Reads the cart out of sessionStorage, treating it as empty (and
  *  discarding the stored value) if lastActivity is missing or more
  *  than CART_EXPIRY_MS old. Always removes the old localStorage key
@@ -64,9 +78,10 @@ cart = readCartFromStorage();
    INITIALIZE
 ========================================== */
 
-function initializeCart(menuItems, renderMenuCallback) {
+function initializeCart(menuItems, renderMenuCallback, activePromotions) {
     cartMenuItems = menuItems;
     rerenderMenu = renderMenuCallback;
+    cartActivePromotions = Array.isArray(activePromotions) ? activePromotions : [];
 
     ensureCheckoutModal();
 
@@ -77,6 +92,7 @@ function initializeCart(menuItems, renderMenuCallback) {
     validateCartAgainstMenu(cartMenuItems);
 
     renderCart();
+    reconcilePromotions();
 
     if (cartExpiryTimerId === null) {
         cartExpiryTimerId = setInterval(checkCartExpiry, 60 * 1000);
@@ -198,6 +214,8 @@ function validateCartAgainstMenu(menuItems) {
     const liveItems = Array.isArray(menuItems) ? menuItems : [];
     const removedNames = [];
     const changedNames = [];
+    const liveItemsById = {};
+    liveItems.forEach(m => { liveItemsById[m.id] = m; });
 
     // Which limited-stock items does the WHOLE cart currently ask for
     // more of than actually remains? Computed once, up front, across
@@ -222,6 +240,32 @@ function validateCartAgainstMenu(menuItems) {
     });
 
     cart = cart.filter(item => {
+        if (item.type === "promo") {
+            // Promo lines are revalidated against the CURRENT cart
+            // (minus any already-filtered-out lines wouldn't be known
+            // yet mid-filter, but that's fine -- a promo line only
+            // ever depends on paid lines, which this pass never
+            // removes except for genuine unavailability, matching the
+            // server's own "paid subtotal, recomputed fresh" posture)
+            // and the currently active promotions list. A removed
+            // promo line gets its own clear, customer-meaningful
+            // message rather than the generic "no longer available"
+            // wording, since the cause (subtotal dropped, promotion
+            // paused/expired, or the chosen flavor sold out) is worth
+            // explaining.
+            if (typeof PromotionsShared === "undefined") {
+                return true;
+            }
+
+            const result = PromotionsShared.isPromoLineStillValid(item, cart, cartActivePromotions, liveItemsById);
+            if (!result.ok) {
+                removedNames.push(`${item.name} (free reward)`);
+                return false;
+            }
+
+            return true;
+        }
+
         if (item.type === "builder") {
             const builderProduct = liveItems.find(
                 m => m.id === item.id && m.product_type === "builder" && m.available === true
@@ -313,9 +357,10 @@ async function refreshAndValidateCart() {
     menuRevalidationInFlight = true;
 
     try {
-        const [menuResult, stockResult] = await Promise.all([
+        const [menuResult, stockResult, promotions] = await Promise.all([
             supabaseClient.from("menu_items").select("*").eq("available", true),
-            supabaseClient.from("menu_item_stock").select("menu_item_id, stock_mode, sold_out_behavior, available_count")
+            supabaseClient.from("menu_item_stock").select("menu_item_id, stock_mode, sold_out_behavior, available_count"),
+            fetchActivePromotionsFromServer()
         ]);
 
         const { data, error } = menuResult;
@@ -332,10 +377,132 @@ async function refreshAndValidateCart() {
         }
 
         cartMenuItems = data;
-        return validateCartAgainstMenu(cartMenuItems);
+        // Always refreshed even on fetch failure (falls back to []),
+        // so a promotion that was paused/expired since page load is
+        // never left stale and incorrectly "still active" client-side
+        // -- submit_order() is the real gate regardless, but the cart
+        // UI should reflect reality as closely as possible.
+        cartActivePromotions = promotions;
+        const result = validateCartAgainstMenu(cartMenuItems);
+        reconcilePromotions();
+        return result;
     } finally {
         menuRevalidationInFlight = false;
     }
+}
+
+/** Fetches every currently-active automatic promotion, joined with
+ *  its reward items, from the public-safe views (see
+ *  supabase/migrations/20261118100000_promotions_schema.sql) --
+ *  shaped exactly as js/promotions-shared.js expects. Used by both
+ *  cart.js (reward eligibility) and menu.js (the public banner).
+ *  Fails open to an empty list -- a promotions-fetch failure must
+ *  never block the menu or checkout from working. */
+async function fetchActivePromotionsFromServer() {
+    if (typeof supabaseClient === "undefined") return [];
+
+    try {
+        const [promoResult, rewardResult] = await Promise.all([
+            supabaseClient.from("public_active_promotions").select("*"),
+            supabaseClient.from("public_active_promotion_reward_items").select("promotion_id, menu_item_id, sort_order")
+        ]);
+
+        if (promoResult.error || !promoResult.data) return [];
+
+        const rewardsByPromotion = {};
+        (rewardResult.data || []).forEach(r => {
+            if (!rewardsByPromotion[r.promotion_id]) rewardsByPromotion[r.promotion_id] = [];
+            rewardsByPromotion[r.promotion_id].push({ menu_item_id: r.menu_item_id, sort_order: r.sort_order });
+        });
+
+        return promoResult.data.map(p => ({
+            ...p,
+            rewardItems: rewardsByPromotion[p.id] || []
+        }));
+    } catch (err) {
+        console.error(err);
+        return [];
+    }
+}
+
+/* ==========================================
+   PROMOTIONS (cart integration)
+
+   The cart never auto-adds a free reward without a flavor choice --
+   it only ever offers one (pendingPromotionChoice) once the cart
+   crosses a promotion's threshold, and only adds the actual "promo"
+   cart line via applyEligiblePromotion() once the customer picks.
+   This is advisory UX only; submit_order() independently re-derives
+   and enforces every one of these same rules server-side (see
+   supabase/migrations/20261118110000_submit_order_promotions_aware.sql).
+========================================== */
+
+/** Re-evaluates promotion eligibility against the current cart: drops
+ *  any promo line that's no longer valid (handled inside
+ *  validateCartAgainstMenu's own "promo" branch, which this does NOT
+ *  duplicate), and decides whether to show a "you qualify, choose
+ *  your flavor" prompt for a newly-eligible promotion. Safe to call
+ *  after every cart mutation. */
+function reconcilePromotions() {
+    const liveItemsById = {};
+    cartMenuItems.forEach(m => { liveItemsById[m.id] = m; });
+
+    const hasPromoLine = cart.some(item => item.type === "promo");
+
+    if (typeof PromotionsShared === "undefined") {
+        pendingPromotionChoice = null;
+        renderCart();
+        return;
+    }
+
+    if (!hasPromoLine) {
+        const applicable = PromotionsShared.findApplicablePromotions(cartActivePromotions, cart)
+            .filter(p => p.promotion_type === "free_item");
+
+        pendingPromotionChoice = applicable.length ? applicable[0] : null;
+    } else {
+        pendingPromotionChoice = null;
+    }
+
+    renderCart();
+}
+
+/** Called once the customer picks a reward flavor from the chooser
+ *  shown for pendingPromotionChoice. Validates the choice (advisory
+ *  only -- see module header) and, if valid, adds the "promo" cart
+ *  line and clears the pending prompt. */
+function applyEligiblePromotion(promotionId, chosenMenuItemId) {
+    const promotion = cartActivePromotions.find(p => p.id === promotionId);
+    if (!promotion) return;
+
+    const liveItemsById = {};
+    cartMenuItems.forEach(m => { liveItemsById[m.id] = m; });
+
+    const candidate = PromotionsShared.buildPromoLineCandidate(promotion, chosenMenuItemId, liveItemsById);
+    if (!candidate.ok) {
+        alert("Sorry, that flavor is no longer available. Please choose the other one.");
+        reconcilePromotions();
+        return;
+    }
+
+    cart = cart.filter(item => item.type !== "promo");
+    cart.push(candidate.line);
+    pendingPromotionChoice = null;
+
+    saveCart();
+    renderCart();
+}
+
+/** Lets the customer change which flavor they picked, without losing
+ *  their place in the qualifying cart -- removes the current promo
+ *  line and re-opens the chooser. */
+function changePromotionChoice() {
+    const existing = cart.find(item => item.type === "promo");
+    if (!existing) return;
+
+    cart = cart.filter(item => item.type !== "promo");
+    saveCart();
+    reconcilePromotions();
 }
 
 /* ==========================================
@@ -343,7 +510,12 @@ async function refreshAndValidateCart() {
 ========================================== */
 
 function getCartQuantity(itemId) {
-    const existing = cart.find(item => item.id === itemId);
+    // type !== "promo": a promotional reward line reuses the SAME
+    // real menu_item_id as its paid cookie (see js/promotions-shared.js)
+    // so a standalone stepper's displayed quantity must never be
+    // conflated with the separate, locked, free reward line for that
+    // same id.
+    const existing = cart.find(item => item.id === itemId && item.type !== "promo");
     return existing ? existing.quantity : 0;
 }
 
@@ -402,7 +574,9 @@ function changeCartQuantity(itemId, change) {
         }
     }
 
-    const existing = cart.find(item => item.id === itemId);
+    // type !== "promo": never match/mutate a locked free-reward line
+    // that happens to share this same real menu_item_id.
+    const existing = cart.find(item => item.id === itemId && item.type !== "promo");
 
     if (!existing && change > 0) {
         cart.push({
@@ -420,12 +594,13 @@ function changeCartQuantity(itemId, change) {
         existing.quantity += change;
 
         if (existing.quantity <= 0) {
-            cart = cart.filter(item => item.id !== itemId);
+            cart = cart.filter(item => !(item.id === itemId && item.type !== "promo"));
         }
     }
 
     saveCart();
     renderCart();
+    reconcilePromotions();
 
     if (rerenderMenu) {
         rerenderMenu();
@@ -719,6 +894,7 @@ function addBuilderToCart(builderProduct) {
     saveCart();
 
     renderCart();
+    reconcilePromotions();
 
     if (rerenderMenu) {
         rerenderMenu();
@@ -815,6 +991,33 @@ function renderCart() {
 
     }
 
+    if (item.type === "promo") {
+
+        return `
+
+            <div class="floating-cart-line promo-cart-line">
+
+                <div>
+
+                    <span class="promo-badge">FREE</span>
+
+                    <strong>${escapeHtml(item.name)}</strong>
+
+                    <div class="promo-cart-line-meta">
+                        ${escapeHtml(item.promotion_name || "Promotional reward")}
+                        <button type="button" class="link-btn" onclick="changePromotionChoice()">Change flavor</button>
+                    </div>
+
+                </div>
+
+                <strong>€0.00</strong>
+
+            </div>
+
+        `;
+
+    }
+
     return `
 
         <div class="floating-cart-line">
@@ -838,6 +1041,8 @@ function renderCart() {
 }).join("")}
         </div>
 
+        ${renderPromotionChooser()}
+
         <div class="floating-cart-total">
             <span>Subtotal</span>
             <strong>€${formatPrice(getSubtotal())}</strong>
@@ -849,6 +1054,49 @@ function renderCart() {
             onclick="openCheckoutModal()">
             Checkout
         </button>
+    `;
+}
+
+/** The "you qualify for a free reward, choose a flavor" prompt shown
+ *  in the cart while pendingPromotionChoice is set. Each flavor is
+ *  shown even when sold out (disabled, clearly labeled) rather than
+ *  silently hidden, per spec -- and if every flavor is unavailable, a
+ *  friendly explanation is shown instead of a broken/empty chooser. */
+function renderPromotionChooser() {
+    if (!pendingPromotionChoice || typeof PromotionsShared === "undefined") return "";
+
+    const liveItemsById = {};
+    cartMenuItems.forEach(m => { liveItemsById[m.id] = m; });
+
+    const choices = PromotionsShared.getRewardChoices(pendingPromotionChoice, liveItemsById);
+    const anyAvailable = choices.some(c => c.available);
+
+    if (!anyAvailable) {
+        return `
+            <div class="promo-chooser promo-chooser-unavailable" role="status">
+                <strong>${escapeHtml(pendingPromotionChoice.customer_title || "You've earned a reward!")}</strong>
+                <p>Sorry, every reward flavor is sold out right now -- you'll still get your order at full value, just without the free item.</p>
+            </div>
+        `;
+    }
+
+    return `
+        <div class="promo-chooser" role="group" aria-label="Choose your free reward flavor">
+            <strong>${escapeHtml(pendingPromotionChoice.cart_message || pendingPromotionChoice.customer_title || "You've earned a free reward!")}</strong>
+            <div class="promo-chooser-options">
+                ${choices.map(choice => `
+                    <button
+                        type="button"
+                        class="promo-chooser-option"
+                        ${choice.available ? "" : "disabled aria-disabled=\"true\""}
+                        aria-label="${choice.available ? `Choose ${escapeHtml(choice.name)}` : `${escapeHtml(choice.name || "This flavor")} is sold out`}"
+                        onclick="${choice.available ? `applyEligiblePromotion('${pendingPromotionChoice.id}', '${choice.id}')` : ""}">
+                        ${escapeHtml(choice.name || "Unavailable")}
+                        ${choice.available ? "" : "<span class=\"promo-chooser-soldout\">Sold out</span>"}
+                    </button>
+                `).join("")}
+            </div>
+        </div>
     `;
 }
 
@@ -1303,6 +1551,25 @@ function renderCheckoutSummary() {
 
     }
 
+    if (item.type === "promo") {
+
+        return `
+
+            <div class="checkout-line promo-cart-line">
+
+                <span>
+                    <span class="promo-badge">FREE</span>
+                    ${escapeHtml(item.name)}
+                </span>
+
+                <strong>€0.00</strong>
+
+            </div>
+
+        `;
+
+    }
+
     return `
 
         <div class="checkout-line">
@@ -1324,6 +1591,8 @@ function renderCheckoutSummary() {
     `;
 
 }).join("")}
+
+            ${renderPromotionChooser()}
 
             <div class="checkout-total">
                 <span>Subtotal</span>
@@ -1479,6 +1748,21 @@ async function submitOrder(event) {
         return;
     }
 
+    // A qualifying cart with no chosen reward flavor yet must never
+    // reach checkout silently without one -- require the explicit
+    // choice here too (renderCart()/renderCheckoutSummary() already
+    // surface the chooser UI, this is the final guard right before
+    // submission).
+    if (pendingPromotionChoice) {
+        renderCheckoutSummary();
+
+        submitButton.disabled = false;
+        submitButton.textContent = "Submit Order";
+
+        alert("Please choose your free reward flavor before placing your order.");
+        return;
+    }
+
     const items = cart.map(item => ({
 
         menu_item_id:
@@ -1490,10 +1774,15 @@ async function submitOrder(event) {
 
         quantity: item.quantity,
 
-        price_at_purchase: item.price,
+        price_at_purchase: item.type === "promo" ? 0 : item.price,
 
         line_total:
-            item.price * item.quantity,
+            item.type === "promo" ? 0 : item.price * item.quantity,
+
+        promotion_claim:
+            item.type === "promo"
+                ? { promotion_id: item.promotion_id }
+                : null,
 
         builder_details:
             item.type === "builder"

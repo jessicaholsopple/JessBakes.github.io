@@ -215,17 +215,26 @@ function textFooter(footerLines) {
     return `\n--\nJess Bakes Sourdough\n${SITE_URL}/\n${footerLines.join("\n")}\n`;
 }
 
+// A promo-reward line is flagged explicitly via i.isPromo (set from
+// order_items.promotion_redemption_id in processOutbox.ts) rather than
+// inferred from lineTotalEur === 0 -- a future legitimately-free,
+// non-promotional line must never be mislabeled as a promo reward, and
+// vice versa.
+function promoLabelHtml() {
+    return `<span style="display:inline-block;background:#5E1811;color:#fff;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:999px;margin-right:6px;">Free</span>`;
+}
+
 function itemsHtmlList(items) {
     return items.map(i =>
         `<tr>
-          <td style="padding:6px 0;border-bottom:1px solid #f1e7da;">${esc(i.name)} &times; ${esc(i.quantity)}</td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1e7da;text-align:right;white-space:nowrap;">${eur(i.lineTotalEur)}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1e7da;">${i.isPromo ? promoLabelHtml() : ""}${esc(i.name)} &times; ${esc(i.quantity)}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1e7da;text-align:right;white-space:nowrap;">${i.isPromo ? "FREE" : eur(i.lineTotalEur)}</td>
         </tr>`
     ).join("");
 }
 
 function itemsTextList(items) {
-    return items.map(i => `  - ${i.name} x${i.quantity} — ${eur(i.lineTotalEur)}`).join("\n");
+    return items.map(i => `  - ${i.isPromo ? "[FREE] " : ""}${i.name} x${i.quantity} — ${i.isPromo ? "FREE" : eur(i.lineTotalEur)}`).join("\n");
 }
 
 /** Same as itemsHtmlList/itemsTextList but also shows unit price --
@@ -235,15 +244,15 @@ function itemsTextList(items) {
 function itemsHtmlListDetailed(items) {
     return items.map(i =>
         `<tr>
-          <td style="padding:6px 0;border-bottom:1px solid #f1e7da;">${esc(i.name)} &times; ${esc(i.quantity)}</td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1e7da;text-align:right;white-space:nowrap;color:${MUTED};">${eur(i.unitPriceEur)} ea</td>
-          <td style="padding:6px 0;border-bottom:1px solid #f1e7da;text-align:right;white-space:nowrap;">${eur(i.lineTotalEur)}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1e7da;">${i.isPromo ? promoLabelHtml() : ""}${esc(i.name)} &times; ${esc(i.quantity)}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1e7da;text-align:right;white-space:nowrap;color:${MUTED};">${i.isPromo ? "FREE" : eur(i.unitPriceEur) + " ea"}</td>
+          <td style="padding:6px 0;border-bottom:1px solid #f1e7da;text-align:right;white-space:nowrap;">${i.isPromo ? "FREE" : eur(i.lineTotalEur)}</td>
         </tr>`
     ).join("");
 }
 
 function itemsTextListDetailed(items) {
-    return items.map(i => `  - ${i.name} x${i.quantity} @ ${eur(i.unitPriceEur)} = ${eur(i.lineTotalEur)}`).join("\n");
+    return items.map(i => `  - ${i.isPromo ? "[FREE] " : ""}${i.name} x${i.quantity} @ ${i.isPromo ? "FREE" : eur(i.unitPriceEur)} = ${i.isPromo ? "FREE" : eur(i.lineTotalEur)}`).join("\n");
 }
 
 /* ============================

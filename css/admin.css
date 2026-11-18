@@ -5112,3 +5112,96 @@ html {
         text-align: center;
     }
 }
+
+/* ---------- Promotions admin page ---------- */
+
+.promo-badge {
+    display: inline-block;
+    background: #5E1811;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.1em 0.5em;
+    border-radius: 999px;
+    margin-right: 0.4em;
+}
+
+.status-draft { background: #eee; color: #555; }
+.status-scheduled { background: #ddefff; color: #155fa0; }
+.status-active { background: #dff7df; color: #1d7a38; }
+.status-paused { background: #fff3d6; color: #9d6b00; }
+.status-expired { background: #f1d9d9; color: #7a2525; }
+.status-archived { background: #e4e0e0; color: #4a4542; }
+
+.promo-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.field-row {
+    display: flex;
+    gap: 1em;
+    flex-wrap: wrap;
+}
+
+.field-row > div {
+    flex: 1 1 10rem;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    font-weight: 500;
+    margin: 0.6em 0;
+}
+
+.modal-card-wide {
+    max-width: 640px;
+}
+
+.promo-reward-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid #e3d9d2;
+    border-radius: 10px;
+    padding: 0.6em 0.8em;
+    margin-bottom: 0.8em;
+}
+
+.promo-reward-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    font-weight: 500;
+}
+
+.promo-preview {
+    background: #F5E8DC;
+    border: 1px solid #e3d9d2;
+    border-radius: 14px;
+    padding: 0.9em 1em;
+    margin-top: 1em;
+}
+
+.promo-preview strong {
+    display: block;
+    margin-bottom: 0.3em;
+}
+
+.promo-preview p {
+    margin: 0.2em 0;
+}
+
+@media (max-width: 720px) {
+    .field-row {
+        flex-direction: column;
+    }
+}

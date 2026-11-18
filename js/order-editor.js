@@ -69,8 +69,30 @@
     function partitionOrderItemsForEditing(orderItems) {
         const flatItemsById = {};
         const builderItems = [];
+        const promoItems = [];
 
         (orderItems || []).forEach(item => {
+            // A promotional reward line reuses the SAME real menu_item_id
+            // as its paid cookie (see js/promotions-shared.js and
+            // supabase/migrations/20261118100000_promotions_schema.sql),
+            // so it must be pulled out into its own array BEFORE the flat/
+            // builder branch below -- otherwise it would collide with (and
+            // silently overwrite, in flatItemsById's keyed-by-id map) a
+            // separate paid line for that same cookie already in the
+            // order. Kept as an array, like builderItems, for the same
+            // reason: nothing here is ever safely keyed by a shared id.
+            if (item.promotion_redemption_id) {
+                promoItems.push({
+                    localId: item.id,
+                    promotionRedemptionId: item.promotion_redemption_id,
+                    menu_item_id: item.menu_item_id,
+                    item_name: item.item_name,
+                    price_at_purchase: toNumber(item.price_at_purchase),
+                    quantity: toNumber(item.quantity)
+                });
+                return;
+            }
+
             if (!item.menu_item_id) {
                 builderItems.push({
                     localId: item.id,
@@ -91,7 +113,7 @@
             };
         });
 
-        return { flatItemsById, builderItems };
+        return { flatItemsById, builderItems, promoItems };
     }
 
     /**
@@ -101,8 +123,19 @@
      * in-memory state. Builder items always keep their original
      * builder_details, price, and quantity — the editor never modifies
      * their contents, only whether the whole line stays or is removed.
+     *
+     * `promoItems` (optional) are carried through unchanged too, EXCEPT
+     * that promotion_redemption_id is deliberately NOT included in this
+     * payload shape -- admin_replace_order_items's delete+reinsert would
+     * otherwise need to know about it. The caller (js/admin-orders.js) is
+     * responsible for re-linking a kept promo line's order_items row back
+     * to its existing promotion_redemptions row via the separate
+     * admin_reconcile_order_promotions RPC after this payload is saved —
+     * see that RPC's own comments in
+     * supabase/migrations/20261118110000_submit_order_promotions_aware.sql
+     * for why this is a second, dedicated call rather than folded in here.
      */
-    function buildOrderItemsPayload(orderId, flatItemsById, builderItems) {
+    function buildOrderItemsPayload(orderId, flatItemsById, builderItems, promoItems) {
         const flatOrderItems = Object.values(flatItemsById || {}).map(item => ({
             order_id: orderId,
             menu_item_id: item.id,
@@ -122,7 +155,16 @@
             builder_details: item.builder_details
         }));
 
-        return [...flatOrderItems, ...builderOrderItems];
+        const promoOrderItems = (promoItems || []).map(item => ({
+            order_id: orderId,
+            menu_item_id: item.menu_item_id,
+            item_name: item.item_name,
+            quantity: item.quantity,
+            price_at_purchase: 0,
+            line_total: 0
+        }));
+
+        return [...flatOrderItems, ...builderOrderItems, ...promoOrderItems];
     }
 
     /** Total line count across both flat and preserved builder items. */

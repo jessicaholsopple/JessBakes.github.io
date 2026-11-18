@@ -312,7 +312,11 @@ test("13. admin-sales.js's category lookup degrades to \"other\" (never throws, 
 
 test("14. order-confirmation/status emails render from order_items' own stored fields only -- no menu_items dependency", () => {
     const source = read("supabase/functions/_shared/processOutbox.ts");
-    assert.match(source, /select\("item_name, quantity, price_at_purchase, line_total"\)/);
+    // promotion_redemption_id was added alongside these fields (it's
+    // itself an order_items column, not a menu_items lookup -- see
+    // supabase/migrations/20261118100000_promotions_schema.sql) so it
+    // doesn't violate "order_items' own stored fields only" either.
+    assert.match(source, /select\("item_name, quantity, price_at_purchase, line_total, promotion_redemption_id"\)/);
 
     // Scoped to just the order_received/order_confirmed/order_cancelled/
     // admin_new_order branch (from its own `if` down to the next
