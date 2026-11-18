@@ -197,6 +197,17 @@ function checkCartExpiry() {
 function computeCartWideDemand(cartLines) {
     const demand = {};
     (cartLines || []).forEach(item => {
+        // A "promo" line never counts as demand here, even when it shares
+        // this same real menu_item_id with a flavor inside a Mix & Match
+        // box -- otherwise the free reward unit could push that flavor's
+        // computed demand over its remaining stock and get a perfectly
+        // valid Mix & Match box silently stripped out of the cart right
+        // before checkout. The server's reconcile_order_stock() trigger
+        // is the actual, atomic stock guarantee and still reserves the
+        // promo line's unit exactly like any other, regardless of this
+        // client-side advisory check.
+        if (item.type === "promo") return;
+
         if (item.type === "builder") {
             (item.selections || []).forEach(selection => {
                 const id = String(selection.id);
@@ -500,6 +511,15 @@ function getCartQuantity(itemId) {
 function getCommittedQuantityForMenuItem(itemId) {
     let total = 0;
     cart.forEach(item => {
+        // A "promo" line is never counted here, even when it shares this
+        // same real menu_item_id with a flavor inside a Mix & Match box --
+        // the free reward unit must never shrink the Mix & Match modal's
+        // own remaining-stock cap for that flavor. The server's
+        // reconcile_order_stock() trigger is the actual, atomic stock
+        // guarantee and still reserves the promo line's unit exactly like
+        // any other, regardless of this client-side advisory cap.
+        if (item.type === "promo") return;
+
         if (item.type === "builder") {
             (item.selections || []).forEach(selection => {
                 if (String(selection.id) === String(itemId)) {

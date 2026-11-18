@@ -47,14 +47,13 @@ const SITE_URL = "https://jessbakessourdough.com";
 
 // Order-confirmation payment options. Customers never select a payment
 // method at checkout (there is no such field), so every confirmation
-// email shows all four ways to pay -- never a conditional single
+// email shows all three ways to pay -- never a conditional single
 // method. These identifiers are fixed, owner-provided values (not an
 // admin-editable setting, matching the existing pickup-location-only
 // scope of Admin Settings) -- preserve them exactly if this file is
 // ever touched again.
 const ZELLE_NUMBER = "4434700714";
 const PAYPAL_HANDLE = "@jessicaholsopple";
-const VENMO_HANDLE = "@jessgodi";
 const CONTACT_PHONE_DISPLAY = "+1 (443) 470-0714";
 const CONTACT_PHONE_TEL = "tel:+14434700714";
 
@@ -325,10 +324,10 @@ ${textFooter(["Contact: " + SITE_URL + "/contact.html", "Privacy: " + SITE_URL +
    2) Order confirmed
 
    Payment section (added 2026-08-28): customers never choose a payment
-   method at checkout, so all four options -- Cash, Zelle, PayPal,
-   Venmo -- are always shown together, never conditionally narrowed to
-   one. Cash stays in EUR (what the customer actually agreed to pay);
-   Zelle/PayPal/Venmo show the SAME pre-computed, already-floored USD
+   method at checkout, so all three options -- Cash, Zelle, PayPal --
+   are always shown together, never conditionally narrowed to one.
+   Cash stays in EUR (what the customer actually agreed to pay);
+   Zelle/PayPal show the SAME pre-computed, already-floored USD
    figure (usdAmount) -- this template only formats it, it never
    converts or rounds anything itself. usdAmount/subtotalEur are the
    snapshot taken once at order-confirm time (see
@@ -361,8 +360,7 @@ export function orderConfirmedEmail({
 <p style="margin:0 0 16px 0;">You may choose one of the following payment methods. Electronic payments may be sent before pickup or at pickup.</p>
 <p style="margin:0 0 14px 0;"><strong>Cash at pickup:</strong> ${eur(subtotalEur)}<br>Please bring exact change. I typically don't have change available unless another customer also pays in cash.</p>
 <p style="margin:0 0 14px 0;"><strong>Zelle:</strong> ${usd(usdAmount)}<br>Send payment to: <strong>${esc(ZELLE_NUMBER)}</strong></p>
-<p style="margin:0 0 14px 0;"><strong>PayPal:</strong> ${usd(usdAmount)}<br>Send payment to: <strong>${esc(PAYPAL_HANDLE)}</strong></p>
-<p style="margin:0;"><strong>Venmo:</strong> ${usd(usdAmount)}<br>Send payment to: <strong>${esc(VENMO_HANDLE)}</strong></p>
+<p style="margin:0;"><strong>PayPal:</strong> ${usd(usdAmount)}<br>Send payment to: <strong>${esc(PAYPAL_HANDLE)}</strong></p>
 `;
 
     const paymentText = `Payment Options
@@ -379,9 +377,6 @@ Send payment to: ${ZELLE_NUMBER}
 
 PayPal: ${usd(usdAmount)}
 Send payment to: ${PAYPAL_HANDLE}
-
-Venmo: ${usd(usdAmount)}
-Send payment to: ${VENMO_HANDLE}
 `;
 
     const contactHtml = `<p style="margin:20px 0 0 0;">If you have any questions or concerns, please reach out to me at <a href="${CONTACT_PHONE_TEL}" style="color:${BURGUNDY};">${esc(CONTACT_PHONE_DISPLAY)}</a>.</p>`;

@@ -620,11 +620,13 @@ test("templates: orderConfirmedEmail formats the pickup date customer-friendly (
 });
 
 /* ==========================================
-   Payment Options section (Cash/Zelle/PayPal/Venmo) -- added so every
-   confirmation shows all four methods, since customers never select
+   Payment Options section (Cash/Zelle/PayPal) -- added so every
+   confirmation shows all three methods, since customers never select
    one at checkout. See CurrencyConversion.convertEurToUsdFlooredWhole
    for the floored-whole-dollar rule this template only formats, never
-   computes.
+   computes. Venmo was removed as a payment option (2026-11-18) --
+   Cash, Zelle, and PayPal are unaffected and must keep rendering
+   exactly as before.
    ========================================== */
 
 const PAYMENT_FIXTURE = {
@@ -633,21 +635,21 @@ const PAYMENT_FIXTURE = {
     subtotalEur: 25.00, usdAmount: 29
 };
 
-test("templates: orderConfirmedEmail always shows Cash, Zelle, PayPal, and Venmo -- never a conditional single method", async () => {
+test("templates: orderConfirmedEmail always shows Cash, Zelle, and PayPal -- never a conditional single method", async () => {
     const t = await import(SHARED + "templates.mjs");
     const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
 
-    for (const label of ["Cash at pickup", "Zelle", "PayPal", "Venmo"]) {
+    for (const label of ["Cash at pickup", "Zelle", "PayPal"]) {
         assert.match(result.html, new RegExp(label));
         assert.match(result.text, new RegExp(label));
     }
 });
 
-test("templates: orderConfirmedEmail's payment section lists Cash, Zelle, PayPal, Venmo in that exact order", async () => {
+test("templates: orderConfirmedEmail's payment section lists Cash, Zelle, PayPal in that exact order", async () => {
     const t = await import(SHARED + "templates.mjs");
     const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
 
-    const order = ["Cash at pickup", "Zelle", "PayPal", "Venmo"];
+    const order = ["Cash at pickup", "Zelle", "PayPal"];
     const positions = order.map(label => result.html.indexOf(label));
     assert.deepEqual(positions, [...positions].sort((a, b) => a - b), "HTML order");
 
@@ -655,7 +657,7 @@ test("templates: orderConfirmedEmail's payment section lists Cash, Zelle, PayPal
     assert.deepEqual(textPositions, [...textPositions].sort((a, b) => a - b), "text order");
 });
 
-test("templates: orderConfirmedEmail shows the order total and the identical floored USD amount for Zelle, PayPal, and Venmo", async () => {
+test("templates: orderConfirmedEmail shows the order total and the identical floored USD amount for Zelle and PayPal", async () => {
     const t = await import(SHARED + "templates.mjs");
     const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
 
@@ -665,9 +667,9 @@ test("templates: orderConfirmedEmail shows the order total and the identical flo
     // Cash shows the EUR total, not a USD figure.
     assert.match(result.html, /Cash at pickup:<\/strong> €25\.00/);
 
-    // All three electronic methods show the exact same $29 USD.
+    // Both electronic methods show the exact same $29 USD.
     const usdMatches = result.html.match(/\$29 USD/g) || [];
-    assert.equal(usdMatches.length, 3, "Zelle, PayPal, and Venmo must each show $29 USD");
+    assert.equal(usdMatches.length, 2, "Zelle and PayPal must each show $29 USD");
     assert.doesNotMatch(result.html, /\$30\b|\$28\b/);
 });
 
@@ -678,7 +680,7 @@ test("templates: orderConfirmedEmail includes the exact-change notice under Cash
     assert.match(result.text, /bring exact change/i);
 });
 
-test("templates: orderConfirmedEmail preserves the Zelle number, PayPal handle, and Venmo handle exactly, with no invented URL", async () => {
+test("templates: orderConfirmedEmail preserves the Zelle number and PayPal handle exactly, with no invented URL", async () => {
     const t = await import(SHARED + "templates.mjs");
     const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
 
@@ -686,11 +688,19 @@ test("templates: orderConfirmedEmail preserves the Zelle number, PayPal handle, 
     assert.match(result.text, /4434700714/);
     assert.match(result.html, /@jessicaholsopple/);
     assert.match(result.text, /@jessicaholsopple/);
-    assert.match(result.html, /@jessgodi/);
-    assert.match(result.text, /@jessgodi/);
 
     // No fabricated paypal.me/venmo.com links.
     assert.doesNotMatch(result.html, /paypal\.me|venmo\.com/);
+});
+
+test("templates: orderConfirmedEmail no longer offers Venmo as a payment option", async () => {
+    const t = await import(SHARED + "templates.mjs");
+    const result = t.orderConfirmedEmail(PAYMENT_FIXTURE);
+
+    assert.doesNotMatch(result.html, /Venmo/);
+    assert.doesNotMatch(result.text, /Venmo/);
+    assert.doesNotMatch(result.html, /@jessgodi/);
+    assert.doesNotMatch(result.text, /@jessgodi/);
 });
 
 test("templates: orderConfirmedEmail's contact note appears with a correct tel: link in HTML and a readable number in plain text", async () => {

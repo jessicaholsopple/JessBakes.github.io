@@ -444,3 +444,67 @@ test("13. a stock-exhaustion RPC error shows a friendly message and refreshes th
     jsonEqual(sandbox.__getCart(), []);
     assert.equal(fakeButton.disabled, false, "the submit button must be re-enabled after a rejected order");
 });
+
+/* ==========================================
+   Regression: a promo reward line must never count as Mix & Match
+   quantity/selection demand, even when it shares its real
+   menu_item_id with a flavor selected inside a Mix & Match box.
+   Root cause: computeCartWideDemand() and
+   getCommittedQuantityForMenuItem() summed a "promo" line's quantity
+   into the same bucket as a standalone purchase, so the free reward
+   unit could push a shared flavor's demand over its live remaining
+   stock -- silently stripping a perfectly valid Mix & Match box out
+   of the cart right before checkout (validateCartAgainstMenu), or
+   capping the builder modal's own "+" stepper one unit short of what
+   the box actually needs (getRemainingStockForMenuItem). The
+   server's reconcile_order_stock() trigger is unaffected by either
+   bug or its fix -- it still reserves real stock for the promo line
+   exactly like any other order_items row.
+   ========================================== */
+
+test("14. validateCartAgainstMenu never counts a promo reward line's quantity against a box flavor sharing its menu_item_id", () => {
+    // Exactly 6 remaining; the box alone wants all 6. A promo reward
+    // line for the SAME flavor must not push demand to 7 and get the
+    // box wrongly removed as over-committed.
+    const liveMenuItems = [
+        { id: "wca", name: "Wicked Caramel Apple", price: 3, product_type: "standard", builder_group: "cookie", available: true, stock_mode: "limited", available_count: 6 },
+        { id: "box", name: "6 Mix & Match Cookies", price: 15, product_type: "builder", builder_group: "cookie", builder_size: 6, available: true }
+    ];
+    const cartItems = [
+        { type: "builder", id: "box", name: "6 Mix & Match Cookies", price: 15, quantity: 1, builder_group: "cookie", selections: [{ id: "wca", name: "Wicked Caramel Apple", quantity: 6 }] },
+        { type: "promo", id: "wca", name: "Wicked Caramel Apple", price: 0, quantity: 1, promotion_id: "promo-1", promotion_name: "Free Cookie", locked: true }
+    ];
+    const { sandbox, alertCalls } = loadCartSandbox({ cartItems, liveMenuItems });
+
+    sandbox.__validateCartAgainstMenu(liveMenuItems);
+
+    jsonEqual(sandbox.__getCart().length, 2, "both the box and the promo line must survive revalidation");
+    assert.equal(alertCalls.length, 0);
+});
+
+test("15. the Mix & Match builder modal's per-flavor stepper cap ignores a promo reward line sharing the same menu_item_id", () => {
+    // Exactly 6 remaining for the one eligible flavor -- a full 6-item
+    // box made entirely of it must still be completable even with an
+    // existing promo reward line for that same flavor already in the
+    // cart (previously, the promo's phantom "1 unit" would cap the
+    // stepper at 5, making the box impossible to complete).
+    const liveMenuItems = [
+        { id: "box", name: "6 Mix & Match Cookies", price: 15, product_type: "builder", builder_group: "cookie", builder_size: 6, available: true },
+        { id: "wca", name: "Wicked Caramel Apple", price: 3, product_type: "standard", builder_group: "cookie", available: true, stock_mode: "limited", available_count: 6 }
+    ];
+    const cartItems = [
+        { type: "promo", id: "wca", name: "Wicked Caramel Apple", price: 0, quantity: 1, promotion_id: "promo-1", promotion_name: "Free Cookie", locked: true }
+    ];
+    const { sandbox } = loadCartSandbox({ cartItems, liveMenuItems });
+
+    sandbox.__openBuilderModal("box");
+
+    for (let i = 0; i < 6; i++) {
+        sandbox.window.updateBuilderSelection("wca", 1);
+    }
+    sandbox.window.finishBuilderSelection();
+
+    const box = sandbox.__getCart().find(i => i.type === "builder");
+    assert.ok(box, "the box must have been added -- all 6 units of the one eligible flavor were selectable");
+    assert.equal(box.selections.find(s => s.id === "wca").quantity, 6);
+});

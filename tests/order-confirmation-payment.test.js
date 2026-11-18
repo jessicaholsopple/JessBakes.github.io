@@ -4,7 +4,7 @@
    Order-confirmation payment snapshot (js/admin-orders.js's
    updateOrderStatus, Confirm-button flow)
 
-   Adds a "Payment Options" section (Cash/Zelle/PayPal/Venmo) to the
+   Adds a "Payment Options" section (Cash/Zelle/PayPal) to the
    existing order_confirmed email. Since customers never choose a
    payment method at checkout, the EUR->USD rate and the resulting
    floored whole-dollar USD amount are resolved and SNAPSHOTTED once,
