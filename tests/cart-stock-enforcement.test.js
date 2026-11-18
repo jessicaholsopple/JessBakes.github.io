@@ -119,6 +119,7 @@ function loadCartSandbox({ cartItems, liveMenuItems, stockRows, submitOrderResul
     const source = [
         read("js/mix-and-match.js"),
         read("js/weekly-schedule.js"),
+        read("js/promotion-banner.js"),
         read("js/cart.js"),
         `
         this.__setCartMenuItems = function (items) { cartMenuItems = items; };

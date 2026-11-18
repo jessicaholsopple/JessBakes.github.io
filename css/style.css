@@ -2420,29 +2420,71 @@ body.gallery-lightbox-open {
   color: var(--muted);
 }
 
-/* Public menu-page banner (see js/menu.js renderPromotionBanner). */
+/* Public promotion banner (homepage + menu page -- see
+   js/promotion-banner.js renderPromotionBanner). Deliberately bolder
+   than a typical info notice -- solid burgundy, gold accent border,
+   an icon -- so it reads as "special offer," not routine page copy,
+   while staying a normal, non-blocking part of the page (no overlay,
+   no dismiss-to-continue, nothing that steals focus). The one-time
+   entrance animation and icon's gentle loop both respect the site's
+   existing global prefers-reduced-motion override (near the top of
+   this file), so neither runs for anyone who's asked their OS to
+   reduce motion. */
 .promo-banner {
-  background: var(--surface);
-  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 0.9em;
+  background: linear-gradient(135deg, var(--burgundy), var(--burgundy-light));
+  border: 2px solid #D4A843;
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 1em 1.25em;
+  box-shadow: 0 10px 30px rgba(94, 24, 17, 0.35);
+  padding: 1.1em 1.4em;
   margin: 0 auto 1.5em;
   max-width: var(--max-width);
-  text-align: center;
+  text-align: left;
+  animation: promoBannerIn .5s ease-out;
+}
+
+.promo-banner-icon {
+  flex: 0 0 auto;
+  font-size: 2.1rem;
+  line-height: 1;
+  animation: promoBannerIconPulse 2.4s ease-in-out infinite;
+}
+
+.promo-banner-text {
+  flex: 1 1 auto;
 }
 
 .promo-banner strong {
-  color: var(--burgundy);
+  color: #fff;
   font-family: "Cormorant Garamond", serif;
-  font-size: 1.3rem;
+  font-size: 1.5rem;
   display: block;
-  margin-bottom: 0.2em;
+  margin-bottom: 0.15em;
 }
 
 .promo-banner p {
   margin: 0;
-  color: var(--text);
+  color: #F5E8DC;
+}
+
+@keyframes promoBannerIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes promoBannerIconPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+
+@media (max-width: 640px) {
+  .promo-banner {
+    flex-direction: column;
+    text-align: center;
+    padding: 1.2em 1em;
+  }
 }
 
 @media (max-width: 640px) {

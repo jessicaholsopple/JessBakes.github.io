@@ -391,39 +391,9 @@ async function refreshAndValidateCart() {
     }
 }
 
-/** Fetches every currently-active automatic promotion, joined with
- *  its reward items, from the public-safe views (see
- *  supabase/migrations/20261118100000_promotions_schema.sql) --
- *  shaped exactly as js/promotions-shared.js expects. Used by both
- *  cart.js (reward eligibility) and menu.js (the public banner).
- *  Fails open to an empty list -- a promotions-fetch failure must
- *  never block the menu or checkout from working. */
-async function fetchActivePromotionsFromServer() {
-    if (typeof supabaseClient === "undefined") return [];
-
-    try {
-        const [promoResult, rewardResult] = await Promise.all([
-            supabaseClient.from("public_active_promotions").select("*"),
-            supabaseClient.from("public_active_promotion_reward_items").select("promotion_id, menu_item_id, sort_order")
-        ]);
-
-        if (promoResult.error || !promoResult.data) return [];
-
-        const rewardsByPromotion = {};
-        (rewardResult.data || []).forEach(r => {
-            if (!rewardsByPromotion[r.promotion_id]) rewardsByPromotion[r.promotion_id] = [];
-            rewardsByPromotion[r.promotion_id].push({ menu_item_id: r.menu_item_id, sort_order: r.sort_order });
-        });
-
-        return promoResult.data.map(p => ({
-            ...p,
-            rewardItems: rewardsByPromotion[p.id] || []
-        }));
-    } catch (err) {
-        console.error(err);
-        return [];
-    }
-}
+// fetchActivePromotionsFromServer() now lives in js/promotion-banner.js
+// (loaded before this file) -- moved out so the homepage can use it
+// without pulling in the rest of cart.js.
 
 /* ==========================================
    PROMOTIONS (cart integration)

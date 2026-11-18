@@ -48,6 +48,7 @@ function loadMenuSandbox({ cartQuantity = 0, stockData, stockError } = {}) {
 
     const source = [
         read("js/mix-and-match.js"),
+        read("js/promotion-banner.js"),
         read("js/menu.js"),
         `
         this.__renderMenuCard = renderMenuCard;

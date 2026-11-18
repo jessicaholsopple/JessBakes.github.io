@@ -75,50 +75,8 @@ async function loadMenu() {
 
 }
 
-/** Tasteful, non-intrusive notice near the top of the menu page for
- *  whatever automatic promotion(s) are active right now -- never a
- *  popup/modal. Auto-appears/disappears purely because
- *  activePromotions is already scoped to "enabled, automatic, within
- *  schedule" by the public_active_promotions view itself (see
- *  supabase/migrations/20261118100000_promotions_schema.sql) -- this
- *  function does no additional date math of its own. Shows only the
- *  highest-priority promotion if more than one is active, to stay
- *  uncluttered. */
-function renderPromotionBanner(activePromotions) {
-    let banner = document.getElementById("promotionBanner");
-
-    const promo = (activePromotions || [])
-        .slice()
-        .sort((a, b) => Number(a.priority || 100) - Number(b.priority || 100))[0];
-
-    if (!promo) {
-        // Hidden rather than removed from the DOM -- simpler, and
-        // avoids depending on Element.remove()/parentNode existing in
-        // every environment this function might run in.
-        if (banner) {
-            banner.innerHTML = "";
-            banner.style.display = "none";
-        }
-        return;
-    }
-
-    if (!banner) {
-        banner = document.createElement("div");
-        banner.id = "promotionBanner";
-        banner.className = "promo-banner";
-        const container = document.getElementById("menuContainer");
-        container.parentNode.insertBefore(banner, container);
-    }
-
-    banner.style.display = "block";
-
-    const escape = typeof escapeHtml === "function" ? escapeHtml : String;
-
-    banner.innerHTML = `
-        <strong>${escape(promo.customer_title || "")}</strong>
-        <p>${escape(promo.customer_description || "")}</p>
-    `;
-}
+// renderPromotionBanner() now lives in js/promotion-banner.js (loaded
+// before this file) -- shared verbatim with the homepage.
 
 async function attachFinishedStock(items) {
     try {

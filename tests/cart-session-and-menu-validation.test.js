@@ -130,6 +130,7 @@ function loadCartSandbox({ sessionSeed, localSeed, liveMenuItems } = {}) {
 
     const source = [
         read("js/mix-and-match.js"),
+        read("js/promotion-banner.js"),
         read("js/cart.js"),
         `
         this.__initializeCart = initializeCart;

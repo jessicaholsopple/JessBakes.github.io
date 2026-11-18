@@ -181,6 +181,7 @@ function loadCartSandbox({ previews, submitResult, submitError, cartItems, liveM
         read("js/vacation-mode.js"),
         read("js/mix-and-match.js"),
         read("js/weekly-schedule.js"),
+        read("js/promotion-banner.js"),
         read("js/cart.js"),
         `
         this.__openCheckoutModal = openCheckoutModal;

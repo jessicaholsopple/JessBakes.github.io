@@ -93,6 +93,7 @@ function loadMenuSandbox(options) {
     const source = [
         read("js/vacation-mode.js"),
         read("js/subscribe-widget.js"),
+        read("js/promotion-banner.js"),
         read("js/menu.js"),
         `
         this.__loadMenu = loadMenu;

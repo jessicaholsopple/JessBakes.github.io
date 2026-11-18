@@ -51,12 +51,13 @@ function loadCartSandbox() {
     // cart.js expects MixAndMatch as a script-global, exactly like it's
     // loaded in menu.html (js/mix-and-match.js before js/cart.js).
     const mixAndMatchSource = read("js/mix-and-match.js");
+    const promotionBannerSource = read("js/promotion-banner.js");
     const cartSource = read("js/cart.js");
     const glue = `
         this.__setCartMenuItems = function (items) { cartMenuItems = items; };
         this.__openBuilderModal = openBuilderModal;
     `;
-    vm.runInContext(mixAndMatchSource + "\n" + cartSource + "\n" + glue, sandbox);
+    vm.runInContext(mixAndMatchSource + "\n" + promotionBannerSource + "\n" + cartSource + "\n" + glue, sandbox);
 
     return { sandbox, fakeModal };
 }
