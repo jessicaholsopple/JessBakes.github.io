@@ -855,6 +855,8 @@ function addBuilderToCart(builderProduct) {
 
             quantity: 1,
 
+            builder_group: builderProduct.builder_group,
+
             selections: builderProduct.selections
 
         });
