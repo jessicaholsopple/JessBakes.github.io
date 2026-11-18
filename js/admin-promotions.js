@@ -572,14 +572,24 @@ function renderRewardItemPicker(selectedIds) {
 
     const standardItems = liveMenuItemsForPromotions.filter(m => m.product_type === "standard");
 
+    // Selectable regardless of current availability -- the reward list
+    // is a durable configuration (e.g. "Brown Butter OR Strawberry
+    // Shortcake"), not a live-stock check. An item that's temporarily
+    // unavailable/sold out is still shown (labeled) so the admin can
+    // configure it now and have it work automatically once it's
+    // available again; it's the CUSTOMER-facing chooser
+    // (js/promotions-shared.js's getRewardChoices, used by js/cart.js)
+    // that disables an unavailable flavor at the moment of checkout,
+    // not this config-time picker. validate_promotion_activation()
+    // only requires at least one reward to be currently available
+    // before a promotion can go live either -- never all of them.
     container.innerHTML = standardItems.map(item => `
         <label class="promo-reward-option">
             <input
                 type="checkbox"
                 value="${item.id}"
-                ${selectedIds.includes(item.id) ? "checked" : ""}
-                ${item.available ? "" : "disabled"}>
-            ${escapeHtml(item.name)}${item.available ? "" : " (unavailable)"}
+                ${selectedIds.includes(item.id) ? "checked" : ""}>
+            ${escapeHtml(item.name)}${item.available ? "" : " (currently unavailable)"}
         </label>
     `).join("") || "<p>No standard menu items found.</p>";
 }
