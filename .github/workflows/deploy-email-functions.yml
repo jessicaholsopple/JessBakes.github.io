@@ -38,14 +38,20 @@ jobs:
       # as newsletter-subscribe -- the anon key satisfies the gateway
       # check; real protection is the token/rate-limit logic inside
       # each function, not the JWT.
+      # --yes: a newer Supabase CLI added an interactive deploy
+      # confirmation prompt; non-interactive CI has no TTY to answer
+      # it, so it must be passed explicitly here. Deployment is still
+      # a deliberate, manual action overall -- gated by this
+      # workflow's workflow_dispatch-only trigger above, not by this
+      # per-command flag.
       - name: Deploy JWT-verified functions
         run: |
-          supabase functions deploy newsletter-subscribe
-          supabase functions deploy newsletter-unsubscribe
-          supabase functions deploy send-emails
-          supabase functions deploy weekly-scheduler
-          supabase functions deploy get-review-order
-          supabase functions deploy submit-review
+          supabase functions deploy newsletter-subscribe --yes
+          supabase functions deploy newsletter-unsubscribe --yes
+          supabase functions deploy send-emails --yes
+          supabase functions deploy weekly-scheduler --yes
+          supabase functions deploy get-review-order --yes
+          supabase functions deploy submit-review --yes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
@@ -55,6 +61,6 @@ jobs:
       # (supabase/functions/_shared/webhook.mjs), verified against
       # the RESEND_WEBHOOK_SECRET Edge Function secret.
       - name: Deploy the public webhook receiver (no JWT verification)
-        run: supabase functions deploy resend-webhook --no-verify-jwt
+        run: supabase functions deploy resend-webhook --no-verify-jwt --yes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
