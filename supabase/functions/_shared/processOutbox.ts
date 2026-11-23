@@ -8,10 +8,13 @@
 // guard; sanitized-only error storage; retry backoff) is enforced
 // here once, not per call site.
 import { sendViaResend } from "./resend.ts";
-import { orderReceivedEmail, orderConfirmedEmail, orderCancelledEmail, newsletterWelcomeEmail, weeklyMenuEmail, vacationReopeningEmail, adminNewOrderEmail } from "./templates.mjs";
+import { orderReceivedEmail, orderConfirmedEmail, orderCancelledEmail, newsletterWelcomeEmail, weeklyMenuEmail, vacationReopeningEmail, adminNewOrderEmail, reviewRequestEmail } from "./templates.mjs";
 import { resolveSendRecipient, isPermanentFailure, nextOutboxState } from "./retry.mjs";
-import { generateUnsubscribeToken, hashToken, buildUnsubscribeUrl } from "./token.mjs";
+import { generateUnsubscribeToken, hashToken, buildUnsubscribeUrl, generateSecureToken, buildReviewUrl } from "./token.mjs";
 import { buildVacationReopeningMenuCategories } from "./menu.mjs";
+import { buildSafeOrderItemsSummary } from "./reviewOrderSnapshot.mjs";
+
+const REVIEW_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 const SITE_URL = "https://jessbakessourdough.com";
 const ORDERS_FROM = "Jess Bakes Sourdough <orders@jessbakessourdough.com>";
@@ -34,6 +37,31 @@ async function mintUnsubscribeLink(adminClient: any, subscriberId: string) {
         subscriber_id: subscriberId
     });
     return buildUnsubscribeUrl(SITE_URL, rawToken);
+}
+
+/** Mints (or re-mints) the one review link for this order. Upserted
+ * on the order_id unique constraint rather than inserted fresh every
+ * time: a retried/failed send that re-enters this function mints a
+ * brand-new raw token and overwrites the previous row's hash/expiry/
+ * used_at, so only the link actually inside the email that ends up
+ * delivered can ever be valid -- an earlier attempt's token (which
+ * the customer never received) silently stops working. Exactly one
+ * row per order, matching "one review link per order" / "one review
+ * per order" everywhere else in this feature. */
+async function mintReviewLink(adminClient: any, orderId: string) {
+    const rawToken = generateSecureToken();
+    const tokenHash = await hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + REVIEW_TOKEN_TTL_MS).toISOString();
+
+    await adminClient.from("review_request_tokens").upsert({
+        token_hash: tokenHash,
+        order_id: orderId,
+        expires_at: expiresAt,
+        used_at: null,
+        created_at: new Date().toISOString()
+    }, { onConflict: "order_id" });
+
+    return buildReviewUrl(SITE_URL, rawToken);
 }
 
 /** Loads the source record(s) this row needs and renders the email.
@@ -265,6 +293,41 @@ async function renderForRow(adminClient: any, row: any) {
             subject: cycle.email_subject || "We're back! Ordering is open again",
             html: rendered.html,
             text: rendered.text
+        };
+    }
+
+    if (row.email_type === "review_request") {
+        const { data: order } = await adminClient
+            .from("orders")
+            .select("id, customer_name, customer_email, status")
+            .eq("id", row.recipient_ref_id)
+            .maybeSingle();
+
+        // Only a currently-completed order ever gets a review link --
+        // if it was Undo Completion'd between enqueue and send, skip
+        // (marked 'skipped' by the caller, not retried forever). If
+        // it's later re-completed, the still-pending/failed outbox
+        // row's idempotency_key already exists from the FIRST
+        // completion, so no new row is ever created -- but this same
+        // row will simply be retried by the normal backoff/retry path
+        // and succeed once the order is completed again.
+        if (!order || order.status !== "completed") return null;
+
+        const { data: items } = await adminClient
+            .from("order_items")
+            .select("item_name, quantity, builder_details, promotion_redemption_id")
+            .eq("order_id", order.id);
+
+        const reviewUrl = await mintReviewLink(adminClient, order.id);
+
+        return {
+            from: ORDERS_FROM,
+            ...reviewRequestEmail({
+                customerName: order.customer_name,
+                orderRef: shortOrderRef(order.id),
+                items: buildSafeOrderItemsSummary(items),
+                reviewUrl
+            })
         };
     }
 

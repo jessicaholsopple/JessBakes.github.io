@@ -42,3 +42,17 @@ export function buildUnsubscribeUrl(siteUrl, rawToken) {
     const base = String(siteUrl || "").replace(/\/+$/, "");
     return `${base}/unsubscribe.html?t=${encodeURIComponent(rawToken)}`;
 }
+
+/** Same 32-random-byte generator as generateUnsubscribeToken -- a
+ * generic name for callers (review-request links) that mint a secure
+ * token for a purpose other than unsubscribing. Identical
+ * implementation, kept as one alias rather than a second copy. */
+export const generateSecureToken = generateUnsubscribeToken;
+
+/** Builds the public review-request link. Carries only the opaque
+ * raw token -- never an order ID, email address, or any other
+ * identifying data (see review_request_tokens / validateReviewToken). */
+export function buildReviewUrl(siteUrl, rawToken) {
+    const base = String(siteUrl || "").replace(/\/+$/, "");
+    return `${base}/reviews.html?t=${encodeURIComponent(rawToken)}`;
+}

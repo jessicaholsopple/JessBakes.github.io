@@ -78,6 +78,19 @@ export function weeklyRecipientKey(campaignKey, subscriberId) {
     return `${campaignKey}:${subscriberId}`;
 }
 
+/** One per order, ever -- same pattern as orderConfirmedKey/
+ * orderCancelledKey. Keyed only by order_id (not by how many times
+ * the order transitioned into 'completed'), so a retried completion
+ * click, an Undo Completion, or a later re-completion of the exact
+ * same order can never enqueue a second review-request email -- the
+ * unique constraint on email_outbox.idempotency_key is what actually
+ * guarantees this; this function just builds the matching string the
+ * SQL trigger also builds (see enqueue_order_status_email() in
+ * supabase/migrations/20261123100000_reviews_order_linking_and_request_tokens.sql). */
+export function reviewRequestKey(orderId) {
+    return `review_request:${orderId}`;
+}
+
 /** Keyed by the vacation cycle's own id (vacation_periods.id) --
  * exactly one reopening campaign ever exists per vacation cycle, no
  * matter how many times the manual "Resume Ordering & Send" button,

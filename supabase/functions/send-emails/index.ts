@@ -13,7 +13,7 @@ import { processOutboxRow } from "../_shared/processOutbox.ts";
 import { corsHeaders, handlePreflight } from "../_shared/cors.ts";
 import {
     orderReceivedEmail, orderConfirmedEmail, orderCancelledEmail,
-    newsletterWelcomeEmail, weeklyMenuEmail, adminNewOrderEmail
+    newsletterWelcomeEmail, weeklyMenuEmail, adminNewOrderEmail, reviewRequestEmail
 } from "../_shared/templates.mjs";
 
 const BATCH_SIZE = 25;
@@ -121,6 +121,8 @@ function renderPreview(emailType: string, sample: any) {
             return orderCancelledEmail(sample);
         case "admin_new_order":
             return adminNewOrderEmail(sample);
+        case "review_request":
+            return reviewRequestEmail({ ...sample, reviewUrl: "https://jessbakessourdough.com/reviews.html?t=preview" });
         case "newsletter_welcome":
             return newsletterWelcomeEmail({ ...sample, unsubscribeUrl: "https://jessbakessourdough.com/unsubscribe.html?t=preview" });
         case "weekly_menu":

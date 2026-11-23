@@ -69,16 +69,55 @@
 
       <p class="eyebrow">Leave a Review</p>
 
-      <h2>Loved your order?</h2>
+      <h2 id="reviewFormHeading">Loved your order?</h2>
 
-      <p>
+      <p id="reviewFormIntro">
         I'd love to hear what you thought. Thank you for taking a minute
         to leave a review.
       </p>
 
+      <p id="generalModeNote" class="field-helper">
+        Ordered recently? Completed-order details are added automatically
+        when you open the review link I email you once your order is
+        marked complete.
+      </p>
+
+      <div id="reviewLoading" class="review-message" style="display:none;">
+        Loading your order...
+      </div>
+
+      <div id="reviewTokenMessage" class="review-message" style="display:none;"></div>
+
       <form id="reviewForm">
 
         <div id="reviewMessage" class="review-message" style="display:none;"></div>
+
+        <div id="orderSummarySection" class="order-summary-section" style="display:none;">
+
+            <h3>Your Order</h3>
+
+            <p class="order-summary-hint">
+                This is a read-only summary of your completed order.
+            </p>
+
+            <ul id="orderSummaryList" class="order-summary-list"></ul>
+
+            <div class="form-group order-visibility-group">
+
+                <label class="checkbox-label" for="showOrderItems">
+                    <input type="checkbox" id="showOrderItems" checked>
+                    Show the items from my order with my review
+                </label>
+
+                <p class="field-helper">
+                    You can turn this off at any time before submitting --
+                    your rating, review, and name will still be shown either way.
+                </p>
+
+            </div>
+
+        </div>
+
        <div class="review-grid">
 
     <div class="form-group">
@@ -89,26 +128,12 @@
             type="text"
             id="reviewName"
             placeholder="First name or first name & last initial"
+            maxlength="120"
             required>
 
-    </div>
-
-    <div class="form-group">
-
-        <label for="reviewProduct">Order</label>
-
-        <select id="reviewProduct" required>
-
-            <option value="">Select an item</option>
-
-            <option>Classic Boule</option>
-            <option>Jalapeño Cheddar Boule</option>
-            <option>Blueberry Lemon Boule</option>
-            <option>Blueberries & Cream Boule</option>
-            <option>Brown Butter Sea Salt Cookie</option>
-            <option>Other</option>
-
-        </select>
+        <p id="reviewNameHelper" class="field-helper" style="display:none;">
+            Only this name will appear with your review.
+        </p>
 
     </div>
 
@@ -138,9 +163,24 @@
 
     <textarea
         id="reviewText"
-        rows="7"
+        rows="10"
         placeholder="Tell everyone what you enjoyed..."
         required></textarea>
+
+</div>
+
+<div id="reviewLivePreview" class="review-live-preview" style="display:none;">
+
+    <p class="eyebrow">Preview</p>
+
+    <article class="review-card">
+        <div class="review-stars" id="previewStars">☆☆☆☆☆</div>
+        <ul id="previewOrderList" class="order-summary-list" style="display:none;"></ul>
+        <p class="review-text" id="previewText">"Your review will appear here..."</p>
+        <div class="review-footer">
+            <strong id="previewName">Your Name</strong>
+        </div>
+    </article>
 
 </div>
 

@@ -663,8 +663,97 @@ ${textFooter([
     };
 }
 
+/** Same row shape as itemsHtmlList/itemsTextList, but never shows a
+ * price -- used only by reviewRequestEmail, where showing dollar
+ * amounts would be out of place and the per-item data is only
+ * name/quantity/flavor-breakdown/promo-flag (see
+ * _shared/reviewOrderSnapshot.mjs's buildSafeOrderItemsSummary,
+ * the single source of this exact shape). */
+function itemsHtmlListNoPricing(items) {
+    return items.map(i => {
+        const flavorsHtml = i.flavors && i.flavors.length
+            ? `<div style="margin-top:3px;padding-left:14px;color:${MUTED};font-size:13px;">${i.flavors.map(f => `${esc(f.name)} &times; ${esc(f.quantity)}`).join("<br>")}</div>`
+            : "";
+        return `<tr>
+          <td style="padding:6px 0;border-bottom:1px solid #f1e7da;">${i.isPromo ? promoLabelHtml() : ""}${esc(i.name)} &times; ${esc(i.quantity)}${flavorsHtml}</td>
+        </tr>`;
+    }).join("");
+}
+
+function itemsTextListNoPricing(items) {
+    return items.map(i => {
+        const base = `  - ${i.isPromo ? "[FREE] " : ""}${i.name} x${i.quantity}`;
+        const flavors = i.flavors && i.flavors.length
+            ? "\n" + i.flavors.map(f => `      - ${f.name} x${f.quantity}`).join("\n")
+            : "";
+        return base + flavors;
+    }).join("\n");
+}
+
 /* ============================
-   7) Admin: new order notification (internal, to the bakery owner)
+   8) Review request -- sent once, automatically, the instant an
+   admin marks an order Completed (see enqueue_order_status_email()
+   in supabase/migrations/20261123100000_reviews_order_linking_and_request_tokens.sql).
+   reviewUrl carries a fresh, single-purpose, hash-stored token (see
+   _shared/token.mjs / review_request_tokens) -- never an order ID,
+   email address, or any other identifying data. Singular "I/me/my"
+   throughout, matching every other first-person bakery communication
+   -- Jess Bakes Sourdough is run by one person.
+   ============================ */
+export function reviewRequestEmail({ customerName, orderRef, items, reviewUrl }) {
+    const bodyHtml = `
+<h1 style="font-size:20px;margin:0 0 4px 0;">I'd love your feedback!</h1>
+<p style="margin:0 0 4px 0;">Hi ${esc(customerName)},</p>
+<p style="margin:12px 0 0 0;">Thank you for ordering from Jess Bakes Sourdough! I hope you enjoyed every bite.</p>
+<p style="margin:12px 0 0 0;">If you have a moment, I'd love for you to leave a review. Your feedback helps my small bakery grow and helps other customers decide what they should try next.</p>
+<p style="margin:12px 0 20px 0;">Your order details are already filled in&mdash;just add your rating and whatever you'd like to share.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;">
+${itemsHtmlListNoPricing(items)}
+</table>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
+<tr><td bgcolor="${BURGUNDY}" style="background-color:${BURGUNDY};border-radius:8px;">
+<a href="${esc(reviewUrl)}" style="display:inline-block;padding:14px 32px;color:#ffffff;text-decoration:none;font-weight:bold;">Leave a Review</a>
+</td></tr>
+</table>
+<p style="margin:0;">Thank you for supporting my small business!<br>Jess<br>Jess Bakes Sourdough</p>
+`;
+
+    const text = `I'd love your feedback!
+
+Hi ${customerName},
+
+Thank you for ordering from Jess Bakes Sourdough! I hope you enjoyed every bite.
+
+If you have a moment, I'd love for you to leave a review. Your feedback helps my small bakery grow and helps other customers decide what they should try next.
+
+Your order details are already filled in -- just add your rating and whatever you'd like to share.
+
+Order #${orderRef}:
+${itemsTextListNoPricing(items)}
+
+Leave a review: ${reviewUrl}
+
+Thank you for supporting my small business!
+Jess
+Jess Bakes Sourdough
+${textFooter(["Contact: " + SITE_URL + "/contact.html", "Privacy: " + SITE_URL + "/privacy.html"])}`;
+
+    return {
+        subject: "How did everything taste? \u{1F36A}",
+        html: emailShell({
+            preheader: "I'd love to hear what you thought of your order!",
+            bodyHtml,
+            footerLinks: [
+                { label: "Contact", url: `${SITE_URL}/contact.html` },
+                { label: "Privacy", url: `${SITE_URL}/privacy.html` }
+            ]
+        }),
+        text
+    };
+}
+
+/* ============================
+   9) Admin: new order notification (internal, to the bakery owner)
 
    Independent from orderReceivedEmail -- separate outbox row,
    separate idempotency key, separate enabled toggle -- but rendered

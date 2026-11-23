@@ -234,6 +234,52 @@ body {
     font-weight: 600;
 }
 
+.admin-order-badge {
+    margin: 6px 0 0;
+    font-size: .82rem;
+    font-weight: 600;
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+}
+
+.admin-order-badge-linked {
+    background: #f3e6d8;
+    color: #5E1811;
+}
+
+.admin-order-badge-general {
+    background: #eee;
+    color: #7d736d;
+}
+
+.admin-order-summary-list,
+.admin-order-flavors {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.admin-order-summary-list {
+    margin: 14px 0 0;
+    padding: 12px 16px;
+    background: #faf5ef;
+    border: 1px solid var(--line, #e7cdbd);
+    border-radius: 12px;
+    font-size: .9rem;
+    color: #4d4642;
+}
+
+.admin-order-summary-list li {
+    padding: 4px 0;
+}
+
+.admin-order-flavors {
+    margin: 2px 0 2px 16px;
+    color: #7d736d;
+    font-size: .85rem;
+}
+
 .admin-stars {
     color: #C89B3C;
     font-size: 1.4rem;

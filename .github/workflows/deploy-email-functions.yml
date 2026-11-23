@@ -34,12 +34,18 @@ jobs:
       # JWT-verified: callable by an authenticated admin session or
       # the service-role JWT (pg_cron). Each function independently
       # checks is_admin()/service-role -- see _shared/supabaseAdmin.ts.
+      # get-review-order/submit-review are JWT-verified the same way
+      # as newsletter-subscribe -- the anon key satisfies the gateway
+      # check; real protection is the token/rate-limit logic inside
+      # each function, not the JWT.
       - name: Deploy JWT-verified functions
         run: |
           supabase functions deploy newsletter-subscribe
           supabase functions deploy newsletter-unsubscribe
           supabase functions deploy send-emails
           supabase functions deploy weekly-scheduler
+          supabase functions deploy get-review-order
+          supabase functions deploy submit-review
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 

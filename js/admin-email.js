@@ -274,6 +274,14 @@ function buildSampleData(emailType) {
                 specialInstructions: "Please slice the boule",
                 submittedAt: new Date().toISOString()
             };
+        case "review_request":
+            return {
+                ...common,
+                items: [
+                    { name: "Sourdough Boule", quantity: 1, isPromo: false, flavors: null },
+                    { name: "Mix & Match Cookie Box", quantity: 1, isPromo: false, flavors: [{ name: "Brown Butter Sea Salt", quantity: 3 }, { name: "Chocolate Chip", quantity: 3 }] }
+                ]
+            };
         case "newsletter_welcome":
             return { name: "Alex" };
         case "weekly_menu":
