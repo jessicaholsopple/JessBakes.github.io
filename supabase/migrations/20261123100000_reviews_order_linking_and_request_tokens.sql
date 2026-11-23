@@ -109,8 +109,16 @@ revoke select on public.reviews from anon;
 --    false, and never exposes order_id, approved/featured flags, or
 --    any other internal column.
 -- ---------------------------------------------------------------
+-- security_invoker = false (the default): this view must run with
+-- its OWNER's privileges, not the querying anon role's -- anon has
+-- zero grant on the underlying reviews table (see below), so an
+-- invoker-rights view would 42501 for every anon caller. The WHERE
+-- approved = true clause baked into the view body is what actually
+-- does the row filtering; running as owner only bypasses the
+-- (now anon-less) table-level RLS/grant, it does not widen which
+-- rows are returned.
 create or replace view public.public_reviews
-  with (security_invoker = true)
+  with (security_invoker = false)
 as
 select
   id,

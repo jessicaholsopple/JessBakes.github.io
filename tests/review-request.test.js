@@ -391,6 +391,22 @@ test("templates: reviewRequestEmail lists a Mix & Match flavor breakdown and lab
 
 /* ---------------- static HTML/JS: stale picker removed ---------------- */
 
+/* Live verification against production (2026-11-23) caught a real bug
+   here: security_invoker = true made public_reviews run as the
+   QUERYING role, so once anon's direct grant on the underlying
+   reviews table was revoked, anon's reads of the view itself started
+   42501'ing too. Fixed to security_invoker = false (the view's
+   OWNER's privileges, with the view body's own WHERE approved = true
+   still doing the actual row filtering) and confirmed live. */
+test("migration: public_reviews view does not use security_invoker = true (would break anon reads once the base table's anon grant is revoked)", () => {
+    const sql = fs.readFileSync(
+        path.join(__dirname, "..", "supabase", "migrations", "20261123100000_reviews_order_linking_and_request_tokens.sql"),
+        "utf8"
+    );
+    assert.ok(sql.includes("public_reviews"));
+    assert.ok(!/security_invoker\s*=\s*true/.test(sql));
+});
+
 test("reviews.html no longer contains the hardcoded product dropdown", () => {
     const html = fs.readFileSync(path.join(__dirname, "..", "reviews.html"), "utf8");
     assert.ok(!html.includes("reviewProduct"));
