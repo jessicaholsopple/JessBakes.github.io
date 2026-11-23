@@ -403,3 +403,29 @@ test("js/reviews.js no longer references a product select element", () => {
     const js = fs.readFileSync(path.join(__dirname, "..", "js", "reviews.js"), "utf8");
     assert.ok(!js.includes("reviewProduct"));
 });
+
+/* ---------------- send-emails/index.ts: master toggle gating ----------------
+   processPending() is Deno-only TypeScript (can't be imported under
+   node:test -- same limitation as the rest of the Edge Function entry
+   points, see docs/bakery-rebuild/10-email-system.md section 8), so this is a static
+   source check rather than a behavioral one: it would have caught the
+   real bug found during this feature's own live-verification pass,
+   where 'review_request' doesn't share the "order_" prefix every
+   other order-lifecycle email_type uses, and so silently bypassed the
+   order_emails_enabled master toggle entirely until both of these
+   lines were added. */
+test("send-emails: review_request is gated by order_emails_enabled like every other order-lifecycle email", () => {
+    const ts = fs.readFileSync(
+        path.join(__dirname, "..", "supabase", "functions", "send-emails", "index.ts"),
+        "utf8"
+    );
+
+    assert.match(
+        ts,
+        /disabledTypes\.push\("order_received", "order_confirmed", "order_confirmed_resend", "order_cancelled", "review_request"\)/
+    );
+    assert.match(
+        ts,
+        /row\.email_type\.startsWith\("order_"\)\s*\|\|\s*row\.email_type === "review_request"/
+    );
+});

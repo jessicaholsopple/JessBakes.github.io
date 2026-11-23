@@ -43,7 +43,12 @@ async function processPending(adminClient: any) {
     // behind them. is_test rows are still exempt from the gate.
     const disabledTypes: string[] = [];
     if (!settings.order_emails_enabled) {
-        disabledTypes.push("order_received", "order_confirmed", "order_confirmed_resend", "order_cancelled");
+        // review_request doesn't share the "order_" prefix (it's a
+        // distinct email_type, not an order_* one -- see
+        // 20261123100000_reviews_order_linking_and_request_tokens.sql),
+        // so it must be listed explicitly here or it would bypass the
+        // master order-emails toggle entirely.
+        disabledTypes.push("order_received", "order_confirmed", "order_confirmed_resend", "order_cancelled", "review_request");
     }
     if (!settings.owner_notifications_enabled) {
         disabledTypes.push("admin_new_order");
@@ -69,7 +74,7 @@ async function processPending(adminClient: any) {
     const results = { processed: 0, sent: 0, failed: 0, skipped: 0 };
 
     for (const row of rows || []) {
-        const isOrderType = row.email_type.startsWith("order_");
+        const isOrderType = row.email_type.startsWith("order_") || row.email_type === "review_request";
         const isAdminOrderType = row.email_type === "admin_new_order";
         const isNewsletterType = row.email_type === "newsletter_welcome" || row.email_type === "weekly_menu";
 
